@@ -8,7 +8,7 @@
 #include <windows.h>
 
 #define APP_NAME                        "keil-build-viewer"
-#define APP_VERSION                     "v1.0"
+#define APP_VERSION                     "v1.1"
 
 #define MAX_DIR_HIERARCHY               32      /* 最大目录层级 */
 #define MAX_PATH_QTY                    32      /* 最大目录数量 */
@@ -215,7 +215,7 @@ int                     parameter_process           (int    param_qty,
 bool                    uvoptx_file_process         (const char *file_path, 
                                                      char *target_name,
                                                      size_t max_size);
-bool                    uvprojx_file_process        (struct memory_info **memory_head,
+int                     uvprojx_file_process        (struct memory_info **memory_head,
                                                      const char *file_path, 
                                                      const char *target_name,
                                                      struct uvprojx_info *out_info,

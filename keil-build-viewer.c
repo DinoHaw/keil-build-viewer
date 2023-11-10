@@ -29,10 +29,11 @@
  * This file is keil-build-viewer.
  *
  * Author:        Dino Haw <347341799@qq.com>
- * Version:       v1.0
+ * Version:       v1.1
  * Change Logs:
  * Version  Date         Author     Notes
  * v1.0     2023-11-10   Dino       the first version
+ * v1.1     2023-11-11   Dino       1. 适配 RAM 和 ROM 的解析
  */
 
 /* Includes ------------------------------------------------------------------*/
@@ -247,11 +248,51 @@ int main(int argc, char *argv[])
 
     bool is_has_user_lib = false;
     struct uvprojx_info uvprojx_file = {0};
-    if (uvprojx_file_process(&_memory_info_head, file_path, target_name_label, &uvprojx_file, &is_has_user_lib, !is_has_target) == false)
+    int res = uvprojx_file_process(&_memory_info_head, 
+                                   file_path, 
+                                   target_name_label, 
+                                   &uvprojx_file, 
+                                   &is_has_user_lib, 
+                                   !is_has_target);
+    if (res == -1)
     {
         log_print(_log_file, "\n[ERROR] can't open .uvproj(x) file\n");
         log_print(_log_file, "[ERROR] Please check: %s\n", file_path);
         result = -5;
+        goto __exit;
+    }
+    else if (res == -2)
+    {
+        log_print(_log_file, "\n[ERROR] <Cpu> contains unsupported types\n");
+        log_print(_log_file, "[ERROR] Please check: %s\n", file_path);
+        result = -6;
+        goto __exit;
+    }
+    else if (res == -3)
+    {
+        log_print(_log_file, "\n[ERROR] generate map file is not checked (Options for Target -> Listing -> Linker Listing)\n");
+        result = -7;
+        goto __exit;
+    }
+
+    log_save(_log_file, "\n[Device] %s\n", uvprojx_file.chip);
+    log_save(_log_file, "[Target name] %s\n", uvprojx_file.target_name);
+    log_save(_log_file, "[Output name] %s\n", uvprojx_file.output_name);
+    log_save(_log_file, "[Output path] %s\n", uvprojx_file.output_path);
+    log_save(_log_file, "[Listing path] %s\n", uvprojx_file.listing_path);
+
+    if (uvprojx_file.output_name[0] == '\0') 
+    {
+        log_print(_log_file, "\n[ERROR] output name is empty\n");
+        log_print(_log_file, "[ERROR] Please check: %s\n", file_path);
+        result = -8;
+        goto __exit;
+    }
+    if (uvprojx_file.listing_path[0] == '\0') 
+    {
+        log_print(_log_file, "\n[ERROR] listing path is empty\n");
+        log_print(_log_file, "[ERROR] Please check: %s\n", file_path);
+        result = -9;
         goto __exit;
     }
 
@@ -271,27 +312,28 @@ int main(int argc, char *argv[])
     }
 
     /* 7. 从 build_log 文件中获取被改名的文件信息 */
-    int res = combine_path(file_path, keil_prj_path, uvprojx_file.output_path);
-    if (res == -1)
+    if (uvprojx_file.output_path[0] != '\0')
     {
-        log_print(_log_file, "\n[ERROR] relative path can only start with .\\ or ..\\\n \n");
-        result = -6;
-        goto __exit;
+        res = combine_path(file_path, keil_prj_path, uvprojx_file.output_path);
+        snprintf(file_path, sizeof(file_path), "%s%s.build_log.htm", file_path, uvprojx_file.output_name);
+        if (res == 0)
+        {
+            build_log_file_process(file_path, &_file_path_list_head);
+        }
+        if (res == -1)
+        {
+            log_print(_log_file, "\n[WARNING] %s not a absolute path\n", keil_prj_path);
+            log_print(_log_file, "[WARNING] path: %s\n \n", file_path);
+        }
+        else if (res == -2)
+        {
+            log_print(_log_file, "\n[WARNING] relative paths go up more levels than absolute paths\n");
+            log_print(_log_file, "[WARNING] path: %s\n \n", file_path);
+        }
     }
-    else if (res == -2)
-    {
-        log_print(_log_file, "\n[ERROR] %s not a absolute path\n \n", keil_prj_path);
-        result = -7;
-        goto __exit;
+    else {
+        log_print(_log_file, "\n[WARNING] is empty, can't read '.build_log.htm' file\n \n");
     }
-    else if (res == -3)
-    {
-        log_print(_log_file, "\n[ERROR] relative paths go up more levels than absolute paths\n \n");
-        result = -8;
-        goto __exit;
-    }
-    snprintf(file_path, sizeof(file_path), "%s%s.build_log.htm", file_path, uvprojx_file.output_name);
-    build_log_file_process(file_path, &_file_path_list_head);
 
     /* 8. 处理剩余的重名文件 */
     file_rename_process(&_file_path_list_head);
@@ -300,17 +342,11 @@ int main(int argc, char *argv[])
     res = combine_path(file_path, keil_prj_path, uvprojx_file.listing_path);
     if (res == -1)
     {
-        log_print(_log_file, "\n[ERROR] relative path can only start with .\\ or ..\\\n \n");
-        result = -9;
-        goto __exit;
-    }
-    else if (res == -2)
-    {
         log_print(_log_file, "\n[ERROR] %s not a absolute path\n \n", keil_prj_path);
         result = -10;
         goto __exit;
     }
-    else if (res == -3)
+    else if (res == -2)
     {
         log_print(_log_file, "\n[ERROR] relative paths go up more levels than absolute paths\n \n");
         result = -11;
@@ -373,29 +409,27 @@ int main(int argc, char *argv[])
     /* 10.1 将路径绑定到 object info 对应的 path 成员 */
     size_t max_name_len = 0;
     size_t max_path_len = 0;
-    for (struct object_info *object_temp = _object_info_head;
-         object_temp != NULL;
-         object_temp = object_temp->next)
+    for (struct file_path_list *path_temp = _file_path_list_head;
+         path_temp != NULL;
+         path_temp = path_temp->next)
     {
-        for (struct file_path_list *path_temp = _file_path_list_head;
-             path_temp != NULL;
-             path_temp = path_temp->next)
+        for (struct object_info *object_temp = _object_info_head;
+             object_temp != NULL;
+             object_temp = object_temp->next)
         {
-            if (strcasecmp(object_temp->name, path_temp->new_name) == 0) 
-            {
+            if (strcasecmp(object_temp->name, path_temp->new_name) == 0) {
                 object_temp->path = path_temp->path;
-
-                /* 计算出各个文件名称和相对路径的最长长度 */
-                size_t path_len = strnlen_s(path_temp->path, MAX_PATH);
-                size_t name_len = strnlen_s(path_temp->new_name, MAX_PATH);
-
-                if (name_len > max_name_len) {
-                    max_name_len = name_len;
-                }
-                if (path_len > max_path_len) {
-                    max_path_len = path_len;
-                }
             }
+        }
+        /* 计算出各个文件名称和相对路径的最长长度 */
+        size_t path_len = strnlen_s(path_temp->path, MAX_PATH);
+        size_t name_len = strnlen_s(path_temp->new_name, MAX_PATH);
+
+        if (name_len > max_name_len) {
+            max_name_len = name_len;
+        }
+        if (path_len > max_path_len) {
+            max_path_len = path_len;
         }
     }
     log_save(_log_file, "\n[object name max length] %d\n", max_name_len);
@@ -511,9 +545,15 @@ int main(int argc, char *argv[])
         if (_is_display_object) 
         {
             size_t len = 0;
-            if (_is_display_path) {
-                len = max_path_len;
-            } else {
+            if (_is_display_path) 
+            {
+                if (max_name_len > max_path_len) {
+                    len = max_name_len;
+                } else {
+                    len = max_path_len;
+                }
+            } 
+            else {
                 len = max_name_len;
             }
             object_print_process(_object_info_head, len, is_has_object);
@@ -574,23 +614,18 @@ int main(int argc, char *argv[])
     }
 
     /* 12. 打印栈使用情况 */
+    if (uvprojx_file.output_path)
     res = combine_path(file_path, keil_prj_path, uvprojx_file.output_path);
     if (res == -1)
     {
-        log_print(_log_file, "\n[ERROR] relative path can only start with .\\ or ..\\\n \n");
+        log_print(_log_file, "\n[ERROR] %s not a absolute path\n \n", keil_prj_path);
         result = -17;
         goto __exit;
     }
     else if (res == -2)
     {
-        log_print(_log_file, "\n[ERROR] %s not a absolute path\n \n", keil_prj_path);
-        result = -18;
-        goto __exit;
-    }
-    else if (res == -3)
-    {
         log_print(_log_file, "\n[ERROR] relative paths go up more levels than absolute paths\n \n");
-        result = -19;
+        result = -18;
         goto __exit;
     }
     snprintf(file_path, sizeof(file_path), "%s%s.htm", file_path, uvprojx_file.output_name);
@@ -605,7 +640,7 @@ int main(int argc, char *argv[])
     {
         log_print(_log_file, "\n[ERROR] can't create record file\n");
         log_print(_log_file, "[ERROR] Please check: %s\n", file_path);
-        result = -20;
+        result = -19;
         goto __exit;
     }
 
@@ -852,19 +887,19 @@ bool uvoptx_file_process(const char *file_path,
  * @param  out_info:            [out] 解析出的 uvprojx 信息
  * @param  is_has_user_lib:     [out] 是否有 user lib
  * @param  is_get_target_name:  是否获取 target name
- * @retval true: 成功 | false: 失败
+ * @retval 0: 成功 | -x: 失败
  */
-bool uvprojx_file_process(struct memory_info **memory_head,
-                          const char *file_path, 
-                          const char *target_name,
-                          struct uvprojx_info *out_info,
-                          bool *is_has_user_lib,
-                          bool is_get_target_name)
+int uvprojx_file_process(struct memory_info **memory_head,
+                         const char *file_path, 
+                         const char *target_name,
+                         struct uvprojx_info *out_info,
+                         bool *is_has_user_lib,
+                         bool is_get_target_name)
 {
     /* 打开同名的 .uvprojx 或 .uvproj 文件 */
     FILE *p_file = fopen(file_path, "r");
     if (p_file == NULL) {
-        return false;
+        return -1;
     }
 
     uint8_t state = 0;
@@ -876,7 +911,7 @@ bool uvprojx_file_process(struct memory_info **memory_head,
     char name[MAX_PRJ_NAME_SIZE] = {0};
     uint32_t base_addr   = 0;
     uint32_t size        = 0;
-    size_t memory_id     = 2;   /* 1 预留给 unknow 的 memory */
+    size_t memory_id     = 2;   /* 1 预留给 unknown 的 memory */
     MEMORY_TYPE mem_type = MEMORY_TYPE_NONE;
 
     /* 逐行读取 */
@@ -916,24 +951,31 @@ bool uvprojx_file_process(struct memory_info **memory_head,
                 }
                 break;
             case 2:
-                bool is_get_head = false;
+                bool is_get_first = false;
 
                 /* 获取 RAM 和 ROM  */
                 str = strstr(_line_text, LABEL_CPU);
                 if (str)
                 {
+                    strtok(_line_text, " ");
                     while (1)
                     {
-                        if (is_get_head == false) 
+                        if (is_get_first == false) 
                         {
                             str_p1  = strstr(_line_text, LABEL_CPU);
                             str_p1 += strlen(LABEL_CPU);
-                            is_get_head = true;
+                            is_get_first = true;
                         }
-                        else {
-                            str_p1 = str_p2 + 2;
+                        else 
+                        {
+                            str_p1 = strtok(NULL, " ");
+                            if (str_p1 == NULL)
+                            {
+                                state = 3;
+                                break;
+                            }
                         }
-                        
+
                         str_p2  = strstr(str_p1, "(");
                         *str_p2 = '\0';
                         strncpy_s(name, sizeof(name), str_p1, strnlen_s(str_p1, sizeof(name)));
@@ -945,20 +987,42 @@ bool uvprojx_file_process(struct memory_info **memory_head,
                         else if (strstr(name, "ROM")) {
                             mem_type = MEMORY_TYPE_FLASH;
                         }
-                        else {
+                        else 
+                        {
                             state = 3;
                             break;
                         }
 
-                        str_p1    = str_p2 + 3;
-                        str_p2    = strstr(str_p1, ",");
+                        str_p1  = str_p2 + 1;
+                        str_p2 += 3;
+                        while ((*str_p2 >= '0') && (*str_p2 <= 'F')) {
+                            str_p2 += 1;
+                        } 
+
+                        int parse_mode = 0;
+                        if (*str_p2 == ',') {
+                            parse_mode = 0;
+                        } 
+                        else if (*str_p2 == '-') {
+                            parse_mode = 1;
+                        } 
+                        else {
+                            return -2;
+                        }
+
                         *str_p2   = '\0';
                         base_addr = strtoul(str_p1, &end_ptr, 16); 
 
-                        str_p1    = str_p2 + 3;
+                        str_p1    = str_p2 + 1;
                         str_p2    = strstr(str_p1, ")");
                         *str_p2   = '\0';
-                        size      = strtoul(str_p1, &end_ptr, 16); 
+                        size      = strtoul(str_p1, &end_ptr, 16);
+
+                        if (parse_mode == 1) 
+                        {
+                            size -= base_addr;
+                            size += 1;
+                        }
 
                         if (mem_type == MEMORY_TYPE_UNKNOWN) {
                             memory_info_add(memory_head, name, 1, base_addr, size, mem_type);
@@ -1012,14 +1076,27 @@ bool uvprojx_file_process(struct memory_info **memory_head,
                 }
                 break;
             case 6:
+                /* 检查是否生成了 map 文件 */
+                str = strstr(_line_text, LABEL_IS_CREATE_MAP);
+                if (str)
+                {
+                    str += strlen(LABEL_IS_CREATE_MAP);
+                    if (*str == '0') {
+                        return -3;
+                    } else {
+                        state = 7;
+                    }
+                }
+                break;
+            case 7:
                 /* 获取已加入编译的文件路径，并记录重复的文件名 */
                 if (file_path_process(_line_text, is_has_user_lib) == false) {
-                    state = 7;
+                    state = 8;
                 }
                 break;
             default: break;
         }
-        if (state == 7) {
+        if (state == 8) {
             break;
         }
     }
@@ -1979,6 +2056,10 @@ void memory_print_process(struct memory_info *memory_head,
             for (; used < ((uint32_t)percent / 2); used++) {
                 strncat_s(progress, sizeof(progress), USED_SYMBOL, strlen(USED_SYMBOL));
             }
+            /* 小于显示比例，避免是空的 */
+            if (used == 0 && region->used_size != 0) {
+                strncpy_s(progress, sizeof(progress), USED_SYMBOL, strlen(USED_SYMBOL));
+            }
             /* 将占用部分的 ZI 部分替换 */
             for (struct region_block *block = region->zi_block;
                  block != NULL;
@@ -2184,17 +2265,16 @@ void log_write(FILE *p_log,
  * @retval 0: 正常 | -x: 错误
  */
 int combine_path(char *out_path, 
-                  const char *absolute_path, 
-                  const char *relative_path)
+                 const char *absolute_path, 
+                 const char *relative_path)
 {
-    if (relative_path[0] != '.') {
-        return -1;
-    }
-
     /* 1. 将绝对路径 absolute_path 的文件名和扩展名去除 */
     strncpy_s(out_path, MAX_PATH, absolute_path, strnlen_s(absolute_path, MAX_PATH));
 
     char *last_slash = strrchr(out_path, '\\');
+    if (last_slash == NULL) {
+        last_slash = strrchr(out_path, '/');
+    }
     if (last_slash != NULL)
     {
         /* 说明不是是盘符根目录 */
@@ -2203,7 +2283,7 @@ int combine_path(char *out_path,
         }
     }
     else {
-        return -2;
+        return -1;
     }
 
     /* 2. 读取绝对路径的目录层级 并 记录每一层级的相对偏移值 */
@@ -2213,7 +2293,7 @@ int combine_path(char *out_path,
     /* 逐字符遍历路径 */
     for (size_t i = 0; i < strnlen_s(out_path, MAX_PATH); i++)
     {
-        if (out_path[i] == '\\')
+        if (out_path[i] == '\\' || out_path[i] == '/')
         {
             dir_hierarchy[hierarchy_count++] = i;
 
@@ -2231,14 +2311,14 @@ int combine_path(char *out_path,
     {
         if (relative_path[i]   == '.' 
         &&  relative_path[i+1] == '.' 
-        &&  relative_path[i+2] == '\\')
+        &&  (relative_path[i+2] == '\\' || relative_path[i+2] == '/'))
         {
             i += 3;
             dir_up_count++;
             valid_path_offset += 3;
         }
         else if (relative_path[i]   == '.' 
-        &&       relative_path[i+1] == '\\') 
+        &&       (relative_path[i+1] == '\\' || relative_path[i+1] == '/')) 
         {
             valid_path_offset = 2;
             break;
@@ -2258,13 +2338,20 @@ int combine_path(char *out_path,
             out_path[offset] = '\0';
         }
         else {
-            return -3;
+            return -2;
         }
     }
 
     /* 5. 根据 2 记录的偏移值和 3 获得的级数，将 absolute_path 和 relative_path 拼接 */
     strncat_s(out_path, MAX_PATH, "\\", 1);
     strncat_s(out_path, MAX_PATH, &relative_path[valid_path_offset], strnlen_s(&relative_path[valid_path_offset], MAX_PATH));
+
+    for (size_t i = 0; i < strnlen_s(out_path, MAX_PATH); i++)
+    {
+        if (out_path[i] == '/') {
+            out_path[i] = '\\';
+        }
+    }
 
     return 0;
 }
