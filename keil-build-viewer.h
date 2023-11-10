@@ -8,7 +8,7 @@
 #include <windows.h>
 
 #define APP_NAME                        "keil-build-viewer"
-#define APP_VERSION                     "v1.1"
+#define APP_VERSION                     "v1.2"
 
 #define MAX_DIR_HIERARCHY               32      /* 最大目录层级 */
 #define MAX_PATH_QTY                    32      /* 最大目录数量 */
@@ -30,10 +30,11 @@
 #define STR_MEMORY_MAP_OF_THE_IMAGE     "Memory Map of the image"
 #define STR_LOAD_REGION                 "Load Region"
 #define STR_EXECUTION_REGION            "Execution Region"
-#define STR_LOAD_BASE_ADDR              "Base"
-#define STR_REGION_USED_SIZE            "Size"
-#define STR_REGION_MAX_SIZE             "Max"
-#define STR_EXECUTE_BASE_ADDR           "Exec base"
+#define STR_LOAD_BASE                   "Load base: "
+#define STR_REGION_USED_SIZE            "Size: "
+#define STR_REGION_MAX_SIZE             "Max: "
+#define STR_EXECUTE_BASE                "Base: "
+#define STR_EXECUTE_BASE_ADDR           "Exec base: "
 #define STR_IMAGE_COMPONENT_SIZE        "Image component sizes"
 #define STR_OBJECT_TOTALS               "Object Totals"
 #define STR_LIBRARY_TOTALS              "Library Totals"
@@ -232,7 +233,9 @@ int                     map_file_process            (const char *file_path,
 int                     region_info_process         (FILE *p_file, 
                                                      long read_start_pos,
                                                      struct load_region **region_head);
-void                    region_zi_process           (struct exec_region **e_region, char *text);
+void                    region_zi_process           (struct exec_region **e_region,
+                                                     char *text,
+                                                     size_t size_pos);
 int                     object_info_process         (struct object_info **object_head,
                                                      FILE *p_file,
                                                      long *end_pos,

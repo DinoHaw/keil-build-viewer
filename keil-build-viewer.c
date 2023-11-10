@@ -29,11 +29,14 @@
  * This file is keil-build-viewer.
  *
  * Author:        Dino Haw <347341799@qq.com>
- * Version:       v1.1
+ * Version:       v1.2
  * Change Logs:
  * Version  Date         Author     Notes
  * v1.0     2023-11-10   Dino       the first version
  * v1.1     2023-11-11   Dino       1. 适配 RAM 和 ROM 的解析
+ * v1.2     2023-11-11   Dino       1. 适配 keil4 的 map 文件
+ *                                  2. 增加检测到开启 LTO 后打印提示信息
+ *                                  3. 修复开启 LTO 后无打印 region 的问题
  */
 
 /* Includes ------------------------------------------------------------------*/
@@ -583,6 +586,9 @@ int main(int argc, char *argv[])
         fputs(STR_OBJECT_TOTALS "\n\n", p_file);
         fclose(p_file);
     }
+    else {
+        log_print(_log_file, "[WARNING] Because LTO is enabled, information for each file cannot be displayed\n \n");
+    }
     
     /* 11. 打印总 flash 和 RAM 占用情况，以进度条显示 */
     /* 11.1 算出 execution region name 的最大长度  */
@@ -635,7 +641,11 @@ int main(int argc, char *argv[])
     /* 13. 保存本次 region 信息至记录文件 */
     snprintf(file_path, sizeof(file_path), "%s\\%s-record.txt", _current_dir, APP_NAME);
 
-    p_file = fopen(file_path, "a");
+    if (is_enable_lto) {
+        p_file = fopen(file_path, "w+");
+    } else {
+        p_file = fopen(file_path, "a");
+    }
     if (p_file == NULL)
     {
         log_print(_log_file, "\n[ERROR] can't create record file\n");
@@ -660,7 +670,7 @@ int main(int argc, char *argv[])
              e_region = e_region->next)
         {
             snprintf(_line_text, sizeof(_line_text),
-                     "\t\t%s %s (%s: 0x%.8X, %s: 0x%.8X, %s: 0x%.8X, END)\n\n",
+                     "\t\t%s %s (%s0x%.8X, %s0x%.8X, %s0x%.8X, END)\n\n",
                      STR_EXECUTION_REGION, e_region->name, STR_EXECUTE_BASE_ADDR, e_region->base_addr,
                      STR_REGION_USED_SIZE, e_region->used_size, STR_REGION_MAX_SIZE, e_region->size);
             fputs(_line_text, p_file);
@@ -1392,6 +1402,7 @@ int region_info_process(FILE *p_file,
     fseek(p_file, read_start_pos, SEEK_SET);
 
     bool is_has_load_region = false;
+    uint8_t size_pos = 2;
     struct load_region *l_region = NULL;
     struct exec_region *e_region = NULL;
     
@@ -1428,28 +1439,43 @@ int region_info_process(FILE *p_file,
             str_p1 = strstr(_line_text, STR_EXECUTION_REGION);
             if (str_p1)
             {
+                if (strstr(_line_text, STR_LOAD_BASE)) {
+                    size_pos = 3;
+                }
+
                 str_p1 += strlen(STR_EXECUTION_REGION) + 1;
                 str_p2  = strstr(str_p1, " ");
                 *str_p2 = '\0';
                 strncpy_s(name, sizeof(name), str_p1, strnlen_s(str_p1, sizeof(name)));
 
-                str_p1  = strstr(str_p2 + 1, STR_EXECUTE_BASE_ADDR);
-                str_p1 += strlen(STR_EXECUTE_BASE_ADDR) + 4;
-                str_p2  = strstr(str_p1, ",");
-                *str_p2 = '\0';
+                str_p1 = strstr(str_p2 + 1, STR_EXECUTE_BASE_ADDR);
+                if (str_p1 == NULL)
+                {
+                    str_p1 = strstr(str_p2 + 1, STR_EXECUTE_BASE);
+                    if (str_p1 == NULL) {
+                        return -5;
+                    }
+                    str_p1 += strlen(STR_EXECUTE_BASE);
+                }
+                else {
+                    str_p1 += strlen(STR_EXECUTE_BASE_ADDR);
+                }
+                
+                str_p2    = strstr(str_p1, ",");
+                *str_p2   = '\0';
                 base_addr = strtoul(str_p1, &end_ptr, 16);
 
-                str_p1  = strstr(str_p2 + 1, STR_REGION_USED_SIZE);
-                str_p1 += strlen(STR_REGION_USED_SIZE) + 4;
-                str_p2  = strstr(str_p1, ",");
-                *str_p2 = '\0';
+                str_p1    = strstr(str_p2 + 1, STR_REGION_USED_SIZE);
+                str_p1   += strlen(STR_REGION_USED_SIZE);
+                str_p2    = strstr(str_p1, ",");
+                *str_p2   = '\0';
                 used_size = strtoul(str_p1, &end_ptr, 16);
 
-                str_p1  = strstr(str_p2 + 1, STR_REGION_MAX_SIZE);
-                str_p1 += strlen(STR_REGION_MAX_SIZE) + 4;
-                str_p2  = strstr(str_p1, ",");
-                *str_p2 = '\0';
-                size = strtoul(str_p1, &end_ptr, 16);
+                str_p1    = strstr(str_p2 + 1, STR_REGION_MAX_SIZE);
+                str_p1   += strlen(STR_REGION_MAX_SIZE);
+                str_p2    = strstr(str_p1, ",");
+                *str_p2   = '\0';
+                size      = strtoul(str_p1, &end_ptr, 16);
 
                 memory_id   = 1;    /* ID 1 表示 unknown */
                 memory_type = MEMORY_TYPE_UNKNOWN;
@@ -1466,14 +1492,14 @@ int region_info_process(FILE *p_file,
                     }
                 }
 
-                region_zi_process(NULL, NULL);
+                region_zi_process(NULL, NULL, 0);
                 e_region = load_region_add_exec_region(&l_region, name, memory_id, base_addr, size, used_size, memory_type);
             }
             else if (e_region
             &&       e_region->type != MEMORY_TYPE_FLASH
             &&       strstr(_line_text, "0x"))
             {
-                region_zi_process(&e_region, _line_text);
+                region_zi_process(&e_region, _line_text, size_pos);
             }
         }
     }
@@ -1486,11 +1512,14 @@ int region_info_process(FILE *p_file,
  * @brief  获取 region 中的 zero init 区域块分布
  * @note   e_region 参数传值为 NULL 时将复位本函数。
  *         切换至新的 execution region 前，必须复位本函数
- * @param  e_region: execution region
- * @param  text:     一行文本内容
+ * @param  e_region:    execution region
+ * @param  text:        一行文本内容
+ * @param  size_pos:    Size 栏目所在的位置，从 1 算起
  * @retval None
  */
-void region_zi_process(struct exec_region **e_region, char *text)
+void region_zi_process(struct exec_region **e_region,
+                       char *text,
+                       size_t size_pos)
 {
     static bool is_zi_start = false;
     static uint32_t last_end_addr = 0;
@@ -1521,13 +1550,15 @@ void region_zi_process(struct exec_region **e_region, char *text)
         return;
     }
 
-    char *token1 = strtok(text, " ");
-    strtok(NULL, " ");
-    char *token3 = strtok(NULL, " ");
+    char *addr_token = strtok(text, " ");
+    for (size_t i = 2; i < size_pos; i++) {
+        strtok(NULL, " ");
+    }
+    char *size_token = strtok(NULL, " ");
 
     char *end_ptr = NULL;
-    uint32_t addr = strtoul(token1, &end_ptr, 16);
-    uint32_t size = strtoul(token3, &end_ptr, 16);
+    uint32_t addr = strtoul(addr_token, &end_ptr, 16);
+    uint32_t size = strtoul(size_token, &end_ptr, 16);
 
     if (addr > last_end_addr) 
     {
@@ -1589,12 +1620,11 @@ int object_info_process(struct object_info **object_head,
             if (strstr(_line_text, STR_LTO_LLVW)) 
             {
                 is_lto = true;
-                if (is_enable_lto) 
-                {
+                if (is_enable_lto) {
                     *is_enable_lto = true;
-                    *object_head   = NULL;
-                    break;
                 }
+                *object_head = NULL;
+                return -4;
             }
         }
 
@@ -1648,10 +1678,6 @@ int object_info_process(struct object_info **object_head,
         }
         fclose(p_file);
         return 0;
-    }
-
-    if (is_lto) {
-        return -4;
     }
 
     /* 获取 library 的 object info */
@@ -2068,7 +2094,11 @@ void memory_print_process(struct memory_info *memory_head,
                 size_t zi_start = ((double)block->start_addr - region->base_addr) * 100 / region->size / 2;
                 size_t zi_end   = ((double)block->start_addr + block->size - region->base_addr) * 100 / region->size / 2;
 
+                if (zi_start == 0) {
+                    zi_start = 1;
+                }
                 log_save(_log_file, "                [zi start] %d   [zi end] %d\n", zi_start, zi_end);
+
                 for (; zi_start < zi_end && zi_start < used; zi_start++) {
                     strncpy_s(&progress[strlen(USED_SYMBOL) * zi_start], sizeof(progress), ZI_SYMBOL, strlen(ZI_SYMBOL));
                 }
