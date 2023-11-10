@@ -50,3 +50,20 @@ modules.order
 Module.symvers
 Mkfile.old
 dkms.conf
+
+# for keil
+*.bin
+*.dbgconf
+*.lst
+*.__i
+*.SBR
+*.Administrator
+*.uvguix.*
+*.axf
+*.htm
+*.lnp
+*.dep
+*.json
+*.log
+**/.vscode/
+/Keil_C51/list/
