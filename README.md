@@ -38,12 +38,12 @@
 ![双击打开文件](images/open_file.gif)
 
 ## 2 在 keil 中使用
-在 keil 中调用方式很简单，仅需参考下图即可。如需输入其他选项，则在 `keil-build-viewer.exe` 后跟随输入。如仅显示每个文件的文件名，则可填写：<br>
+1.  在 keil 中调用方式很简单，下载发行版中的 `keil-build-viewer.exe` 放在 keil 工程的同级目录，按下图进行配置即可。如需输入其他选项，则在 `keil-build-viewer.exe` 后跟随输入。如仅显示每个文件的文件名，则可填写：<br>
     ```
     keil-build-viewer.exe -NOPATH
     ```
 
-在 cmd 或 powershell 中使用同理，仅需添加前缀 `.\` 即可。如：<br>
+2.  在 cmd 或 powershell 中使用同理，仅需添加前缀 `.\` 即可。如：<br>
     ```
     .\keil-build-viewer.exe -NOPATH
     ```
