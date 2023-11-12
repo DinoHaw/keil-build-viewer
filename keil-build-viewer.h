@@ -8,7 +8,7 @@
 #include <windows.h>
 
 #define APP_NAME                        "keil-build-viewer"
-#define APP_VERSION                     "v1.2"
+#define APP_VERSION                     "v1.3"
 
 #define MAX_DIR_HIERARCHY               32      /* 最大目录层级 */
 #define MAX_PATH_QTY                    32      /* 最大目录数量 */
@@ -36,6 +36,9 @@
 #define STR_EXECUTE_BASE                "Base: "
 #define STR_EXECUTE_BASE_ADDR           "Exec base: "
 #define STR_IMAGE_COMPONENT_SIZE        "Image component sizes"
+#define STR_OBJECT_NAME                 "Object Name"
+#define STR_LIBRARY_MEMBER_NAME         "Library Member Name"
+#define STR_LIBRARY_NAME                "Library Name"
 #define STR_OBJECT_TOTALS               "Object Totals"
 #define STR_LIBRARY_TOTALS              "Library Totals"
 #define LABEL_TARGET_NAME               "<TargetName>"
@@ -46,9 +49,11 @@
 #define LABEL_OUTPUT_NAME               "<OutputName>"
 #define LABEL_LISTING_PATH              "<ListingPath>"
 #define LABEL_IS_CREATE_MAP             "<AdsLLst>"
+#define LABEL_AC6_LTO                   "<v6Lto>"
 #define LABEL_END_GROUPS                "</Groups>"
 #define LABEL_END_FILE                  "</File>"
 #define LABEL_END_FILES                 "</Files>"
+#define LABEL_END_CADS                  "</Cads>"                      
 #define LABEL_GROUP_NAME                "<GroupName>"
 #define LABEL_FILE_NAME                 "<FileName>"
 #define LABEL_FILE_TYPE                 "<FileType>"
@@ -140,8 +145,9 @@ struct memory_info
 
 struct file_path_list
 {
-    char *old_name;
-    char *new_name;
+    char *old_name;         /* 原名 */
+    char *object_name;      /* 更改为 .o 后缀名的名称 */
+    char *new_object_name;  /* 因重名而改名后的名称，为 .o 后缀 */
     char *path;
     bool is_rename;
     OBJECT_FILE_TYPE file_type;
@@ -156,6 +162,8 @@ struct command_list
 
 struct uvprojx_info
 {
+    bool is_has_user_lib;
+    bool is_enable_lto;
     char chip[MAX_PRJ_NAME_SIZE];
     char target_name[MAX_PRJ_NAME_SIZE];
     char output_name[MAX_PRJ_NAME_SIZE];
@@ -220,7 +228,6 @@ int                     uvprojx_file_process        (struct memory_info **memory
                                                      const char *file_path, 
                                                      const char *target_name,
                                                      struct uvprojx_info *out_info,
-                                                     bool *is_has_user_lib,
                                                      bool is_get_target_name);
 bool                    file_path_process           (const char *str, bool *is_has_user_lib);
 void                    build_log_file_process      (const char *file_path, struct file_path_list **path_head);
@@ -228,8 +235,7 @@ void                    file_rename_process         (struct file_path_list **pat
 int                     map_file_process            (const char *file_path, 
                                                      struct load_region **region_head,
                                                      struct object_info **object_head,
-                                                     bool is_get_user_lib,
-                                                     bool *is_enable_lto);
+                                                     bool is_get_user_lib);
 int                     region_info_process         (FILE *p_file, 
                                                      long read_start_pos,
                                                      struct load_region **region_head);
@@ -239,12 +245,11 @@ void                    region_zi_process           (struct exec_region **e_regi
 int                     object_info_process         (struct object_info **object_head,
                                                      FILE *p_file,
                                                      long *end_pos,
-                                                     bool *is_enable_lto,
-                                                     bool is_get_user_lib);
+                                                     bool is_get_user_lib,
+                                                     uint8_t parse_mode);
 int                     record_file_process         (const char *file_path, 
                                                      struct load_region **region_head,
                                                      struct object_info **object_head,
-                                                     bool is_get_user_lib,
                                                      bool *is_has_object,
                                                      bool *is_has_region);
 void                    object_print_process        (struct object_info *object_head,

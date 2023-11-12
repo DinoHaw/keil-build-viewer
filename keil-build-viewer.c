@@ -29,7 +29,7 @@
  * This file is keil-build-viewer.
  *
  * Author:        Dino Haw <347341799@qq.com>
- * Version:       v1.2
+ * Version:       v1.3
  * Change Logs:
  * Version  Date         Author     Notes
  * v1.0     2023-11-10   Dino       the first version
@@ -37,6 +37,7 @@
  * v1.2     2023-11-11   Dino       1. 适配 keil4 的 map 文件
  *                                  2. 增加检测到开启 LTO 后打印提示信息
  *                                  3. 修复开启 LTO 后无打印 region 的问题
+ * v1.3     2023-11-12   Dino       1. 修复工程存在多个 lib 时仅解析一个的问题
  */
 
 /* Includes ------------------------------------------------------------------*/
@@ -249,13 +250,11 @@ int main(int argc, char *argv[])
         strncpy_s(target_name_label, sizeof(target_name_label), LABEL_TARGET_NAME, strlen(LABEL_TARGET_NAME));
     }
 
-    bool is_has_user_lib = false;
     struct uvprojx_info uvprojx_file = {0};
     int res = uvprojx_file_process(&_memory_info_head, 
                                    file_path, 
                                    target_name_label, 
                                    &uvprojx_file, 
-                                   &is_has_user_lib, 
                                    !is_has_target);
     if (res == -1)
     {
@@ -359,8 +358,10 @@ int main(int argc, char *argv[])
     snprintf(file_path, sizeof(file_path), "%s%s.map", file_path, uvprojx_file.output_name);
     log_save(_log_file, "[map file path] %s\n", file_path);
 
-    bool is_enable_lto = false;
-    res = map_file_process(file_path, &_load_region_head, &_object_info_head, is_has_user_lib, &is_enable_lto);
+    res = map_file_process(file_path, 
+                           &_load_region_head, 
+                           &_object_info_head, 
+                           uvprojx_file.is_has_user_lib);
     if (res == -1)
     {
         log_print(_log_file, "\n[ERROR] Check if a map file exists (Options for Target -> Listing -> Linker Listing)\n");
@@ -382,7 +383,7 @@ int main(int argc, char *argv[])
         result = -14;
         goto __exit;
     }
-    log_save(_log_file, "[Is enbale LTO] %d\n", is_enable_lto);
+    log_save(_log_file, "[Is enbale LTO] %d\n", uvprojx_file.is_enable_lto);
 
     log_save(_log_file, "\n[region info]\n");
     for (struct load_region *l_region = _load_region_head; 
@@ -395,7 +396,8 @@ int main(int argc, char *argv[])
              e_region = e_region->next)
         {
             log_save(_log_file, "\t[execution region] %s, 0x%.8X, 0x%.8X, 0x%.8X [type] %d [ID] %d\n", 
-                     e_region->name, e_region->base_addr, e_region->size, e_region->used_size, e_region->type, e_region->memory_id);
+                     e_region->name, e_region->base_addr, e_region->size, 
+                     e_region->used_size, e_region->type, e_region->memory_id);
             
             for (struct region_block *block = e_region->zi_block;
                  block != NULL;
@@ -420,16 +422,30 @@ int main(int argc, char *argv[])
              object_temp != NULL;
              object_temp = object_temp->next)
         {
-            if (strcasecmp(object_temp->name, path_temp->new_name) == 0) {
-                object_temp->path = path_temp->path;
+            if (path_temp->file_type == OBJECT_FILE_TYPE_LIBRARY)
+            {
+                if (strcasecmp(object_temp->name, path_temp->old_name) == 0) {
+                    object_temp->path = path_temp->path;
+                }
+            }
+            else 
+            {
+                if (strcasecmp(object_temp->name, path_temp->new_object_name) == 0) {
+                    object_temp->path = path_temp->path;
+                }
             }
         }
-        /* 计算出各个文件名称和相对路径的最长长度 */
-        size_t path_len = strnlen_s(path_temp->path, MAX_PATH);
-        size_t name_len = strnlen_s(path_temp->new_name, MAX_PATH);
 
-        if (name_len > max_name_len) {
-            max_name_len = name_len;
+        /* 计算出各个文件名称和相对路径的最长长度 */
+        size_t path_len  = strnlen_s(path_temp->path, MAX_PATH);
+        size_t name_len1 = strnlen_s(path_temp->old_name, MAX_PATH);
+        size_t name_len2 = strnlen_s(path_temp->new_object_name, MAX_PATH);
+
+        if (name_len1 > max_name_len) {
+            max_name_len = name_len1;
+        }
+        if (name_len2 > max_name_len) {
+            max_name_len = name_len2;
         }
         if (path_len > max_path_len) {
             max_path_len = path_len;
@@ -455,10 +471,11 @@ int main(int argc, char *argv[])
          path_list = path_list->next)
     {
         log_save(_log_file, "[old name] %s%*s [type] %d   [path] %s\n", 
-                 path_list->old_name, max_name_len + 1 - strlen(path_list->old_name), " ", path_list->file_type, path_list->path);
+                 path_list->old_name, max_name_len + 1 - strlen(path_list->old_name), " ", 
+                 path_list->file_type, path_list->path);
 
-        if (strcmp(path_list->new_name, path_list->old_name)) {
-            log_save(_log_file, "[new name] %s\n", path_list->new_name);
+        if (strcmp(path_list->object_name, path_list->new_object_name)) {
+            log_save(_log_file, "[new name] %s\n", path_list->new_object_name);
         }
     }
 
@@ -489,7 +506,6 @@ int main(int argc, char *argv[])
         record_file_process(file_path, 
                             &_record_load_region_head, 
                             &_record_object_info_head, 
-                            is_has_user_lib,
                             &is_has_object,
                             &is_has_region);
     }
@@ -543,7 +559,7 @@ int main(int argc, char *argv[])
     }
 
     /* 10.4 打印并保存本次编译信息至记录文件 */
-    if (is_enable_lto == false)
+    if (uvprojx_file.is_enable_lto == false)
     {
         if (_is_display_object) 
         {
@@ -641,7 +657,7 @@ int main(int argc, char *argv[])
     /* 13. 保存本次 region 信息至记录文件 */
     snprintf(file_path, sizeof(file_path), "%s\\%s-record.txt", _current_dir, APP_NAME);
 
-    if (is_enable_lto) {
+    if (uvprojx_file.is_enable_lto) {
         p_file = fopen(file_path, "w+");
     } else {
         p_file = fopen(file_path, "a");
@@ -895,7 +911,6 @@ bool uvoptx_file_process(const char *file_path,
  * @param  file_path:           uvprojx 文件的绝对路径
  * @param  target_name:         指定的 target name
  * @param  out_info:            [out] 解析出的 uvprojx 信息
- * @param  is_has_user_lib:     [out] 是否有 user lib
  * @param  is_get_target_name:  是否获取 target name
  * @retval 0: 成功 | -x: 失败
  */
@@ -903,7 +918,6 @@ int uvprojx_file_process(struct memory_info **memory_head,
                          const char *file_path, 
                          const char *target_name,
                          struct uvprojx_info *out_info,
-                         bool *is_has_user_lib,
                          bool is_get_target_name)
 {
     /* 打开同名的 .uvprojx 或 .uvproj 文件 */
@@ -1099,14 +1113,31 @@ int uvprojx_file_process(struct memory_info **memory_head,
                 }
                 break;
             case 7:
-                /* 获取已加入编译的文件路径，并记录重复的文件名 */
-                if (file_path_process(_line_text, is_has_user_lib) == false) {
+                /* 检查是否开启了 LTO */
+                str = strstr(_line_text, LABEL_AC6_LTO);
+                if (str)
+                {
+                    str += strlen(LABEL_AC6_LTO);
+                    if (*str == '0') {
+                        out_info->is_enable_lto = false;
+                    } else {
+                        out_info->is_enable_lto = true;
+                    }
                     state = 8;
+                }
+                else if (strstr(_line_text, LABEL_END_CADS)) {
+                    state = 8;
+                }
+                break;
+            case 8:
+                /* 获取已加入编译的文件路径，并记录重复的文件名 */
+                if (file_path_process(_line_text, &out_info->is_has_user_lib) == false) {
+                    state = 9;
                 }
                 break;
             default: break;
         }
-        if (state == 8) {
+        if (state == 9) {
             break;
         }
     }
@@ -1154,11 +1185,11 @@ void build_log_file_process(const char *file_path, struct file_path_list **path_
                     *str_p3 = '\0';
                     str_p1  = strrchr(str_p2 + 1, '\\');
                     str_p1 += 1;
-                    if (path_temp->new_name) {
-                        free(path_temp->new_name);
+                    if (path_temp->new_object_name) {
+                        free(path_temp->new_object_name);
                     }
-                    path_temp->new_name  = strdup(str_p1);
-                    path_temp->is_rename = false;
+                    path_temp->new_object_name = strdup(str_p1);
+                    path_temp->is_rename       = false;
                     log_save(_log_file, "'%s' rename to '%s'\n", path_temp->old_name, str_p1);
                 }
             }
@@ -1194,7 +1225,7 @@ void file_rename_process(struct file_path_list **path_head)
              path_temp2 = path_temp2->next)
         {
             if (path_temp2->is_rename
-            &&  strcmp(path_temp1->old_name, path_temp2->old_name) == 0)
+            &&  strcmp(path_temp1->object_name, path_temp2->object_name) == 0)
             {
                 repeat++;
 
@@ -1204,11 +1235,11 @@ void file_rename_process(struct file_path_list **path_head)
                     *dot = '\0';
                 }
                 snprintf(str, sizeof(str), "%s_%d.o", str, repeat);
-                if (path_temp2->new_name) {
-                    free(path_temp2->new_name);
+                if (path_temp2->new_object_name) {
+                    free(path_temp2->new_object_name);
                 }
-                path_temp2->new_name  = strdup(str);
-                path_temp2->is_rename = false;
+                path_temp2->new_object_name = strdup(str);
+                path_temp2->is_rename       = false;
                 log_save(_log_file, "object '%s' rename to '%s'\n", path_temp2->old_name, str);
             }
         }
@@ -1332,14 +1363,12 @@ bool file_path_process(const char *str, bool *is_has_user_lib)
  * @param  region_head:     region 链表头
  * @param  object_head:     object 文件链表头
  * @param  is_has_user_lib: 是否获取 user lib 信息
- * @param  is_enable_lto:   [out] 是否使能了 LTO
  * @retval 0: 正常 | -x: 错误
  */
 int map_file_process(const char *file_path, 
                      struct load_region **region_head,
                      struct object_info **object_head,
-                     bool is_get_user_lib,
-                     bool *is_enable_lto)
+                     bool is_get_user_lib)
 {
     FILE *p_file = fopen(file_path, "r");
     if (p_file == NULL) {
@@ -1382,7 +1411,7 @@ int map_file_process(const char *file_path,
     region_info_process(p_file, memory_map_pos, region_head);
 
     /* 获取每个 .o 文件的 flash 和 RAM 占用情况 */
-    return object_info_process(object_head, p_file, NULL, is_enable_lto, is_get_user_lib);
+    return object_info_process(object_head, p_file, NULL, is_get_user_lib, 0);
 }
 
 
@@ -1594,17 +1623,18 @@ void region_zi_process(struct exec_region **e_region,
  * @param  object_head:     object 文件链表头
  * @param  p_file:          文件对象
  * @param  end_pos:         [out] 最后读取到的文件位置
- * @param  is_enable_lto:   [out] 是否使能了 LTO
  * @param  is_get_user_lib: 是否获取用户 lib 信息
+ * @param  parse_mode:      解析模式 0: 按 map 文件解析 | 1: 按 record 文件解析
  * @retval 0: 正常 | -x: 错误
  */
 int object_info_process(struct object_info **object_head,
                         FILE *p_file,
                         long *end_pos,
-                        bool *is_enable_lto,
-                        bool is_get_user_lib)
+                        bool is_get_user_lib,
+                        uint8_t parse_mode)
 {
-    bool is_lto    = false;
+    uint8_t state  = 0;
+    int  result    = 0;
     int  value[16] = {0};
     char name[MAX_PRJ_NAME_SIZE] = {0};
     char *token    = NULL;
@@ -1615,130 +1645,182 @@ int object_info_process(struct object_info **object_head,
     /* 获取用户文件的 object info */
     while (fgets(_line_text, sizeof(_line_text), p_file))
     {
-        if (is_lto == false)
+        switch (state)
         {
-            if (strstr(_line_text, STR_LTO_LLVW)) 
-            {
-                is_lto = true;
-                if (is_enable_lto) {
-                    *is_enable_lto = true;
-                }
-                *object_head = NULL;
-                return -4;
-            }
-        }
-
-        if (strstr(_line_text, ".o")) 
-        {
-            index = 0;
-            /* 切割后转换 */
-            token = strtok(_line_text, " ");
-            while (token != NULL)
-            {
-                if (index < OBJECT_INFO_STR_QTY - 1) {
-                    value[index] = strtoul(token, &end_ptr, 10);
-                } 
-                else    /* 最后一个是名称 */
+            case 0:
+                if (parse_mode == 0)
                 {
-                    new_line = strrchr(token, '\n');
-                    if (new_line) {
-                        *new_line = '\0';
+                    /* Object Name 全部添加 */
+                    if (strstr(_line_text, ".o")) 
+                    {
+                        index = 0;
+                        /* 切割后转换 */
+                        token = strtok(_line_text, " ");
+                        while (token != NULL)
+                        {
+                            if (index < OBJECT_INFO_STR_QTY - 1) {
+                                value[index] = strtoul(token, &end_ptr, 10);
+                            } 
+                            else    /* 最后一个是名称 */
+                            {
+                                new_line = strrchr(token, '\n');
+                                if (new_line) {
+                                    *new_line = '\0';
+                                }
+                                strncpy_s(name, sizeof(name), token, strnlen_s(token, sizeof(name)));
+                            }
+                            if (++index == OBJECT_INFO_STR_QTY) {
+                                break;
+                            }
+                            token = strtok(NULL, " ");
+                        }
+
+                        /* 保存 */
+                        if (index == OBJECT_INFO_STR_QTY) {
+                            object_info_add(object_head, name, value[0], value[2], value[3], value[4]);
+                        } 
+                        else 
+                        {
+                            result = -3;
+                            break;
+                        }
                     }
-                    strncpy_s(name, sizeof(name), token, strnlen_s(token, sizeof(name)));
+                    else if (strstr(_line_text, STR_LIBRARY_MEMBER_NAME)) 
+                    {
+                        if (is_get_user_lib) {
+                            state = 1;
+                        } else {
+                            state = 3;
+                        }
+                    }
                 }
-                if (++index == OBJECT_INFO_STR_QTY) {
+                else if (parse_mode == 1)
+                {
+                    if (strstr(_line_text, STR_OBJECT_NAME)) {
+                        state = 2;
+                    }
+                }
+                break;
+            case 1:
+                /* Library Member Name 仅添加匹配的 object */
+                if (strstr(_line_text, ".o")) 
+                {
+                    index = 0;
+                    /* 切割后转换 */
+                    token = strtok(_line_text, " ");
+                    while (token != NULL)
+                    {
+                        if (index < OBJECT_INFO_STR_QTY - 1) {
+                            value[index] = strtoul(token, &end_ptr, 10);
+                        } 
+                        else    /* 最后一个是名称 */
+                        {
+                            new_line = strrchr(token, '\n');
+                            if (new_line) {
+                                *new_line = '\0';
+                            }
+                            strncpy_s(name, sizeof(name), token, strnlen_s(token, sizeof(name)));
+                        }
+                        if (++index == OBJECT_INFO_STR_QTY) {
+                            break;
+                        }
+                        token = strtok(NULL, " ");
+                    }
+
+                    /* 保存 */
+                    if (index == OBJECT_INFO_STR_QTY) 
+                    {
+                        for (struct file_path_list *path_temp = _file_path_list_head; 
+                             path_temp != NULL; 
+                             path_temp = path_temp->next)
+                        {
+                            if (path_temp->file_type == OBJECT_FILE_TYPE_LIBRARY)
+                            {
+                                if (strcasecmp(name, path_temp->new_object_name) == 0) 
+                                {
+                                    object_info_add(object_head, name, value[0], value[2], value[3], value[4]);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                else if (strstr(_line_text, STR_LIBRARY_NAME)) {
+                    state = 2;
+                }
+                break;
+            case 2:
+                /* Library Member Name 仅添加匹配的 object */
+                if (strstr(_line_text, STR_OBJECT_TOTALS)) 
+                {
+                    state = 3;
                     break;
                 }
-                token = strtok(NULL, " ");
-            }
+                else
+                {
+                    index = 0;
+                    /* 切割后转换 */
+                    token = strtok(_line_text, " ");
+                    while (token != NULL)
+                    {
+                        if (index < OBJECT_INFO_STR_QTY - 1) {
+                            value[index] = strtoul(token, &end_ptr, 10);
+                        } 
+                        else    /* 最后一个是名称 */
+                        {
+                            new_line = strrchr(token, '\n');
+                            if (new_line) {
+                                *new_line = '\0';
+                            }
+                            strncpy_s(name, sizeof(name), token, strnlen_s(token, sizeof(name)));
+                        }
+                        if (++index == OBJECT_INFO_STR_QTY) {
+                            break;
+                        }
+                        token = strtok(NULL, " ");
+                    }
 
-            /* 保存 */
-            object_info_add(object_head, name, value[0], value[2], value[3], value[4]);
-        }
-        else if (strstr(_line_text, STR_OBJECT_TOTALS)) 
-        {
-            if (is_lto == false) 
-            {
-                if (is_enable_lto) {
-                    *is_enable_lto = false;
+                    /* 保存 */
+                    if (index == OBJECT_INFO_STR_QTY) 
+                    {
+                        if (parse_mode == 1)
+                        {
+                            object_info_add(object_head, name, value[0], value[2], value[3], value[4]);
+                            break;
+                        }
+
+                        for (struct file_path_list *path_temp = _file_path_list_head; 
+                             path_temp != NULL; 
+                             path_temp = path_temp->next)
+                        {
+                            if (path_temp->file_type == OBJECT_FILE_TYPE_LIBRARY)
+                            {
+                                if (strcasecmp(name, path_temp->old_name) == 0) 
+                                {
+                                    object_info_add(object_head, name, value[0], value[2], value[3], value[4]);
+                                    break;
+                                }
+                            }
+                        }
+                    }
                 }
-            }
+                break;
+            default: break;
+        }
+
+        if (state == 3 || result != 0) {
             break;
         }
     }
 
-    if (index == 0) {
-        return -3;
-    }
-
-    if (is_get_user_lib == false) 
+    if (state == 3) 
     {
         if (end_pos) {
             *end_pos = ftell(p_file);
         }
-        fclose(p_file);
-        return 0;
-    }
-
-    /* 获取 library 的 object info */
-    bool is_get_lib_info = true;
-
-    while (fgets(_line_text, sizeof(_line_text), p_file))
-    {
-        if (is_get_lib_info
-        &&  strstr(_line_text, ".o"))
-        {
-            size_t i = 0;
-
-            /* 切割后转换 */
-            token = strtok(_line_text, " ");
-            while (token != NULL)
-            {
-                if (i < OBJECT_INFO_STR_QTY - 1) {
-                    value[i] = strtoul(token, &end_ptr, 10);
-                } 
-                else    /* 最后一个是名称 */
-                {
-                    new_line = strrchr(token, '\n');
-                    if (new_line) {
-                        *new_line = '\0';
-                    }
-                    strncpy_s(name, sizeof(name), token, strnlen_s(token, sizeof(name)));
-                }
-                if (++i == OBJECT_INFO_STR_QTY) {
-                    break;
-                }
-                token = strtok(NULL, " ");
-            }
-
-            struct file_path_list *temp = _file_path_list_head;
-            for (; temp != NULL; temp = temp->next)
-            {
-                if (temp->file_type == OBJECT_FILE_TYPE_LIBRARY)
-                {
-                    if (strcasecmp(name, temp->new_name) == 0) 
-                    {
-                        object_info_add(object_head, name, value[0], value[2], value[3], value[4]);
-                        break;
-                    }
-                }
-            }
-
-            if (temp == NULL) {
-                is_get_lib_info = false;
-            }
-        }
-        else if (strstr(_line_text, STR_LIBRARY_TOTALS))
-        {
-            if (end_pos) {
-                *end_pos = ftell(p_file);
-            }
-            break;
-        }
     }
     fclose(p_file);
-
-    return 0;
+    return result;
 }
 
 
@@ -1748,7 +1830,6 @@ int object_info_process(struct object_info **object_head,
  * @param  file_path:       文件的绝对路径
  * @param  region_head:     region 链表头
  * @param  object_head:     object 文件链表头
- * @param  is_get_user_lib: 是否获取 user lib 信息
  * @param  is_has_object:   [out] 是否存在 object 信息
  * @param  is_has_region:   [out] 是否存在 region 信息
  * @retval 0: 正常 | -x: 错误
@@ -1756,7 +1837,6 @@ int object_info_process(struct object_info **object_head,
 int record_file_process(const char *file_path, 
                         struct load_region **region_head,
                         struct object_info **object_head,
-                        bool is_get_user_lib,
                         bool *is_has_object,
                         bool *is_has_region)
 {
@@ -1769,7 +1849,7 @@ int record_file_process(const char *file_path,
     }
 
     long end_pos = 0;
-    int result = object_info_process(object_head, p_file, &end_pos, NULL, false);
+    int result = object_info_process(object_head, p_file, &end_pos, false, 1);
     if (result == 0) {
         *is_has_object = true;
     }
@@ -1833,6 +1913,10 @@ void object_print_process(struct object_info *object_head,
          obj_info != NULL; 
          obj_info = obj_info->next)
     {
+        if (obj_info->path == NULL) {
+            continue;
+        }
+
         char *path          = obj_info->path;
         char ram_text[MAX_PRJ_NAME_SIZE]   = {0};
         char flash_text[MAX_PRJ_NAME_SIZE] = {0};
@@ -1841,7 +1925,8 @@ void object_print_process(struct object_info *object_head,
         uint32_t ram        = obj_info->rw_data + obj_info->zi_data;
         uint32_t flash      = obj_info->code + obj_info->ro_data + obj_info->rw_data;
 
-        if (obj_info->path == NULL || _is_display_path == false) 
+//        if (obj_info->path == NULL || _is_display_path == false) 
+        if (_is_display_path == false) 
         {
             path = obj_info->name;
             if (path == NULL) {
@@ -2403,7 +2488,10 @@ bool file_path_add(struct file_path_list **path_head,
 {
     bool is_rename = false;
     char str[MAX_PRJ_NAME_SIZE] = {0};
+    char old_name[MAX_PRJ_NAME_SIZE] = {0};
     struct file_path_list **path_list = path_head;
+
+    memcpy_s(old_name, sizeof(old_name), name, strnlen_s(name, sizeof(old_name)));
 
     /* 可编译的文件和 lib 文件均会被编译为 .o 文件，此处提前进行文件扩展名的替换，便于后续的字符比对和查找 */
     if (file_type == OBJECT_FILE_TYPE_USER || file_type == OBJECT_FILE_TYPE_LIBRARY)
@@ -2428,7 +2516,7 @@ bool file_path_add(struct file_path_list **path_head,
         do {
             if (is_rename == false
             &&  (file_type == OBJECT_FILE_TYPE_USER || file_type == OBJECT_FILE_TYPE_LIBRARY)
-            &&  strcmp(str, list->old_name) == 0) 
+            &&  strcmp(str, list->object_name) == 0) 
             {
                 is_rename = true;
             }
@@ -2441,12 +2529,13 @@ bool file_path_add(struct file_path_list **path_head,
 
     *path_list = (struct file_path_list *)malloc(sizeof(struct file_path_list));
 
-    (*path_list)->old_name  = strdup(str);
-    (*path_list)->new_name  = strdup(str);
-    (*path_list)->path      = strdup(path);
-    (*path_list)->file_type = file_type;
-    (*path_list)->is_rename = is_rename;
-    (*path_list)->next      = NULL;
+    (*path_list)->old_name        = strdup(old_name);
+    (*path_list)->object_name     = strdup(str);
+    (*path_list)->new_object_name = strdup(str);
+    (*path_list)->path            = strdup(path);
+    (*path_list)->file_type       = file_type;
+    (*path_list)->is_rename       = is_rename;
+    (*path_list)->next            = NULL;
 
     return true;
 }
@@ -2466,7 +2555,8 @@ void file_path_free(struct file_path_list **path_head)
         struct file_path_list *temp = list;
         list = list->next;
         free(temp->old_name);
-        free(temp->new_name);
+        free(temp->object_name);
+        free(temp->new_object_name);
         free(temp->path);
         free(temp);
     }
