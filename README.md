@@ -7,7 +7,7 @@
 1.  解析参与编译的每个文件对 RAM 和 flash 的占用情况
     - 自动忽略不被包含进编译的文件
     - 自动检索被 keil 改名的文件
-    - 支持双击打开文件
+    - **支持双击打开文件**
     - 支持关闭该信息的展示
     - 支持仅显示文件名
 
@@ -17,7 +17,7 @@
     - `_` 表示未被使用的区域
 
 3.  二次编译后新增与减少的数据量展示
-    - 通过对比上次的编译结果，显示本次编译新增或减少的数据量大小，单位是 byte
+    - 通过对比上次的编译结果，**显示本次编译新增或减少的数据量大小，单位是 byte**
     - 若是新增的文件，则会显示 `[NEW]`
 
 4.  自动搜索本级目录的 keil 工程，因此可无参调用
@@ -32,24 +32,25 @@
     - `-NOOBJ`   不显示每个文件的 RAM 和 flash 的占用信息
     - `-PATH`    显示每个文件的相对路径（默认）
     - `-NOPATH`  仅显示每个文件的文件名
-    - `-` 开头的命令均支持大小写输入
+    - **以上命令不区分大小写**
 
-6.  显示最大栈使用
+6.  显示最大的栈使用
     - 数据来自 keil ，静态无法精确分析，数据仅供参考
 
 > **说明：** 本工具的所有参数可不按顺序输入，为空时表示选择默认值，但参数与参数之间需用**空格**隔开
 
+> **双击打开对应文件动画演示**
 ![双击打开文件](images/open_file.gif)
 
 ## 2 在 keil 中使用
-1.  在 keil 中调用方式很简单，下载发行版中的 `keil-build-viewer.exe` 放在 keil 工程的同级目录，按下图进行配置即可。如需输入其他选项，则在 `keil-build-viewer.exe` 后跟随输入。如仅显示每个文件的文件名，则可填写：<br>
+1.  在 keil 中调用方式很简单，下载发行版中的 `keil-build-viewer.exe` 放在 keil 对应的 uvproj(x) 工程的同级目录，按下图进行配置即可。如需输入其他选项，则在 `keil-build-viewer.exe` 后跟随输入。如仅显示每个文件的文件名，则可填写：<br>
     ```
     keil-build-viewer.exe -NOPATH
     ```
 
 2.  在 cmd 或 powershell 中使用同理，仅需添加前缀 `.\` 即可。如：<br>
     ```
-    .\keil-build-viewer.exe -NOPATH
+    .\keil-build-viewer.exe
     ```
 ![keil配置](images/user_command.png)
 
@@ -78,6 +79,21 @@
     ![gcc编译通过](images/gcc_compile.png)
 
 
+## 4 问题解答
+1.  出现 `[ERROR] NO keil project found` 之类的提示
+    > 确认 `keil-build-viewer.exe` 放在了你需要查看的 keil uvproj(x) 工程同级目录
+
+2.  出现 `[ERROR] listing path is empty` 之类的提示
+    > 在 keil 中选择你要放置的 listing 相关文件的文件夹
+    ![选择listing文件夹](images/select_listing_folder.png)
+
+3.  出现 `[ERROR] generate map file is not checked` 或 `[ERROR] Check if a map file exists` 之类的提示
+    > 确认 keil 已经勾选了下图这些选项
+    ![创建map](images/create_map.png)
+
+4.  其他问题请提 issues 或联系作者。
+
+
 ## 修改记录
 | 版本 |     日期    |修改者        |修改内容                                  |
 |:----:|:----------:|--------------|-----------------------------------------|
@@ -88,11 +104,9 @@
 
 
 ## 重要说明
-> **1. 路径和 project target 不要含有中文，否则会出现乱码。**
+> **1. 目前仅支持 keil MDK。**
 >
-> **2. 目前仅支持 keil MDK。**
->
-> **3. 不支持解析通过 RTE 添加的文件**
+> **2. 不支持解析通过 RTE 添加的文件**
 
 
 ## 参与贡献
