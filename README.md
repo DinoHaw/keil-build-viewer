@@ -91,7 +91,20 @@
     > 确认 keil 已经勾选了下图这些选项
     ![创建map](images/create_map.png)
 
-4.  其他问题请提 issues 或联系作者。
+4.  若编译信息缺失或与实际有偏差
+    > 确认解析的工程为目标工程（同级目录存在多个工程时）<br>
+    > 可通过解析出的前置信息核对当前工具所解析的工程，若发现不一致，可在 `keil-build-viewer.exe` 之后指定工程名，如：
+    ```
+    keil-build-viewer.exe TIMER
+    或
+    keil-build-viewer.exe TIMER.uvprojx
+    ```
+    > ![解析的工程](images/keil_project_name.png)
+
+5.  若工程目录或工程名有空格，将其使用 `""` 括起来
+    > ![空格案例](images/space_example.png)
+
+6.  其他问题请提 issues 或联系作者。
 
 
 ## 修改记录
