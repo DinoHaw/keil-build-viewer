@@ -29,7 +29,7 @@
  * This file is keil-build-viewer.
  *
  * Author:        Dino Haw <347341799@qq.com>
- * Version:       v1.3
+ * Version:       v1.4
  * Change Logs:
  * Version  Date         Author     Notes
  * v1.0     2023-11-10   Dino       the first version
@@ -38,6 +38,7 @@
  *                                  2. 增加检测到开启 LTO 后打印提示信息
  *                                  3. 修复开启 LTO 后无打印 region 的问题
  * v1.3     2023-11-12   Dino       1. 修复工程存在多个 lib 时仅解析一个的问题
+ * v1.4     2023-11-21   Dino       1. 增加将本工具放置于系统环境变量 Path 所含目录的功能
  */
 
 /* Includes ------------------------------------------------------------------*/
@@ -94,20 +95,15 @@ int main(int argc, char *argv[])
 {
     clock_t run_time = clock();
 
-    /* 1. 获取本程序所在目录 */
-    GetModuleFileName(NULL, _current_dir, MAX_PATH);
-
-    char *last_slash = strrchr(_current_dir, '\\');
-    if (last_slash) {
-        *last_slash = '\0';
-    }
+    /* 1. 获取程序运行的工作目录 */
+    GetCurrentDirectory(MAX_PATH, _current_dir);
 
     /* 创建 log 文件 */
     char file_path[MAX_PATH];
     snprintf(file_path, sizeof(file_path), "%s\\%s.log", _current_dir, APP_NAME);
     _log_file = fopen(file_path, "w+");
 
-    log_print(_log_file, "\n=================================================== %s %s ==================================================\n", APP_NAME, APP_VERSION);
+    log_print(_log_file, "\n=================================================== %s %s ==================================================\n ", APP_NAME, APP_VERSION);
 
     /* 2. 搜索同级目录或指定目录下的所有 keil 工程并打印 */
     _keil_prj_path_list = prj_path_list_init(MAX_PATH_QTY);
@@ -187,7 +183,7 @@ int main(int argc, char *argv[])
     {
         keil_prj_path = _keil_prj_path_list->items[_keil_prj_path_list->size - 1];
 
-        last_slash = strrchr(keil_prj_path, '\\');
+        char *last_slash = strrchr(keil_prj_path, '\\');
         if (last_slash) 
         {
             last_slash += 1;
@@ -625,14 +621,23 @@ int main(int argc, char *argv[])
     }
 
     /* 11.2 开始打印 */
+    bool is_print_null = true;
     for (struct load_region *l_region = _load_region_head; 
          l_region != NULL; 
          l_region = l_region->next)
     {
         log_print(_log_file, "%s\n", l_region->name);
-        memory_print_process(_memory_info_head, l_region->exec_region, MEMORY_TYPE_SRAM,    max_region_name, is_has_region);
-        memory_print_process(_memory_info_head, l_region->exec_region, MEMORY_TYPE_FLASH,   max_region_name, is_has_region);
-        memory_print_process(_memory_info_head, l_region->exec_region, MEMORY_TYPE_UNKNOWN, max_region_name, is_has_region);
+        memory_print_process(_memory_info_head, l_region->exec_region, MEMORY_TYPE_SRAM,    max_region_name, is_has_region, is_print_null);
+        memory_print_process(_memory_info_head, l_region->exec_region, MEMORY_TYPE_FLASH,   max_region_name, is_has_region, is_print_null);
+        memory_print_process(_memory_info_head, l_region->exec_region, MEMORY_TYPE_UNKNOWN, max_region_name, is_has_region, is_print_null);
+
+        for (struct memory_info *memory_temp = _memory_info_head;
+             memory_temp != NULL;
+             memory_temp = memory_temp->next)
+        {
+            memory_temp->is_printed = false;
+        }
+        is_print_null = false;
     }
 
     /* 12. 打印栈使用情况 */
@@ -2046,13 +2051,15 @@ void object_print_process(struct object_info *object_head,
  * @param  type:            指定打印的 execution region 内存类型
  * @param  max_region_name: 最大的 execution region 名称长度
  * @param  is_has_record:   是否有记录文件
+ * @param  is_print_null:   是否打印未使用的存储器
  * @retval None
  */
 void memory_print_process(struct memory_info *memory_head,
                           struct exec_region *e_region, 
                           MEMORY_TYPE type,
                           size_t max_region_name,
-                          bool is_has_record)
+                          bool is_has_record,
+                          bool is_print_null)
 {
     size_t sram_id    = 0;
     size_t flash_id   = 0;
@@ -2136,7 +2143,7 @@ void memory_print_process(struct memory_info *memory_head,
             else
             {
                 used_size = (double)region->used_size / (1024 * 1024);
-                snprintf(used_size_str, sizeof(used_size_str), "%5.2f MB", used_size);
+                snprintf(used_size_str, sizeof(used_size_str), "%5.1f MB", used_size);
             }
 
             if (region->size < 1024)
@@ -2152,7 +2159,7 @@ void memory_print_process(struct memory_info *memory_head,
             else
             {
                 size = (double)region->size / (1024 * 1024);
-                snprintf(size_str, sizeof(size_str), "%5.2f MB", size);
+                snprintf(size_str, sizeof(size_str), "%5.1f MB", size);
             }
 
             double percent = (double)region->used_size * 100 / region->size;
@@ -2168,8 +2175,10 @@ void memory_print_process(struct memory_info *memory_head,
                 strncat_s(progress, sizeof(progress), USED_SYMBOL, strlen(USED_SYMBOL));
             }
             /* 小于显示比例，避免是空的 */
-            if (used == 0 && region->used_size != 0) {
+            if (used == 0 && region->used_size != 0) 
+            {
                 strncpy_s(progress, sizeof(progress), USED_SYMBOL, strlen(USED_SYMBOL));
+                used = 1;
             }
             /* 将占用部分的 ZI 部分替换 */
             for (struct region_block *block = region->zi_block;
@@ -2179,7 +2188,7 @@ void memory_print_process(struct memory_info *memory_head,
                 size_t zi_start = ((double)block->start_addr - region->base_addr) * 100 / region->size / 2;
                 size_t zi_end   = ((double)block->start_addr + block->size - region->base_addr) * 100 / region->size / 2;
 
-                if (zi_start == 0) {
+                if (region->base_addr > block->start_addr) {
                     zi_start = 1;
                 }
                 log_save(_log_file, "                [zi start] %d   [zi end] %d\n", zi_start, zi_end);
@@ -2240,7 +2249,7 @@ void memory_print_process(struct memory_info *memory_head,
 
         if (is_print_region == false) 
         {
-            if (type != MEMORY_TYPE_UNKNOWN)
+            if (is_print_null && type != MEMORY_TYPE_UNKNOWN)
             {
                 log_print(_log_file, "        %s%*s [0x%.8X | 0x%.8X (%d)]\n",
                           str, max_region_name, " ", memory_temp->base_addr, memory_temp->size, memory_temp->size);

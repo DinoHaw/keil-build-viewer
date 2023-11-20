@@ -8,7 +8,7 @@
 #include <windows.h>
 
 #define APP_NAME                        "keil-build-viewer"
-#define APP_VERSION                     "v1.3"
+#define APP_VERSION                     "v1.4"
 
 #define MAX_DIR_HIERARCHY               32      /* 最大目录层级 */
 #define MAX_PATH_QTY                    32      /* 最大目录数量 */
@@ -259,7 +259,8 @@ void                    memory_print_process        (struct memory_info *memory_
                                                      struct exec_region *e_region, 
                                                      MEMORY_TYPE type, 
                                                      size_t max_region_name,
-                                                     bool is_has_record);
+                                                     bool is_has_record,
+                                                     bool is_print_null);
 void                    stack_print_process         (const char *file_path);
 void                    log_write                   (FILE *p_log, 
                                                      bool is_print, 
