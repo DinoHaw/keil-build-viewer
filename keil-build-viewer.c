@@ -50,7 +50,7 @@ static FILE *                   _log_file;
 static bool                     _is_display_object = true;
 static bool                     _is_display_path   = true;
 static char                     _line_text[1024];
-static char                     _current_dir[MAX_PATH];
+static char *                   _current_dir;
 static struct prj_path_list *   _keil_prj_path_list;
 static struct load_region *     _load_region_head;
 static struct load_region *     _record_load_region_head;
@@ -96,11 +96,46 @@ int main(int argc, char *argv[])
     clock_t run_time = clock();
 
     /* 1. 获取程序运行的工作目录 */
-    GetCurrentDirectory(MAX_PATH, _current_dir);
+    int result = 0;
+    DWORD buff_len = GetCurrentDirectory(0, NULL);
+    if (buff_len == 0) 
+    {
+        printf("\n[ERROR] %s %s\n", APP_NAME, APP_VERSION);
+        printf("[ERROR] Get current directory length failed (code: %d)\n", GetLastError());
+        result = -20;
+        goto __exit;
+    }
+
+    _current_dir = (char *)malloc(buff_len + 1);
+    if (_current_dir == NULL) 
+    {
+        printf("\n[ERROR] %s %s\n", APP_NAME, APP_VERSION);
+        printf("[ERROR] Failed to allocate current directory memory\n");
+        result = -21;
+        goto __exit;
+    }
+
+    buff_len = GetCurrentDirectory(buff_len, _current_dir);
+    if (buff_len == 0) 
+    {
+        printf("\n[ERROR] %s %s\n", APP_NAME, APP_VERSION);
+        printf("[ERROR] Get current directory failed. (code: %d)\n", GetLastError());
+        result = -22;
+        goto __exit;
+    }
 
     /* 创建 log 文件 */
-    char file_path[MAX_PATH];
-    snprintf(file_path, sizeof(file_path), "%s\\%s.log", _current_dir, APP_NAME);
+    char *file_path = NULL;
+    size_t file_path_size = buff_len * 2;
+    file_path = (char *)malloc(file_path_size);
+    if (file_path == NULL) 
+    {
+        printf("\n[ERROR] %s %s\n", APP_NAME, APP_VERSION);
+        printf("[ERROR] Failed to allocate file path memory\n");
+        result = -23;
+        goto __exit;
+    }
+    snprintf(file_path, file_path_size, "%s\\%s.log", _current_dir, APP_NAME);
     _log_file = fopen(file_path, "w+");
 
     log_print(_log_file, "\n=================================================== %s %s ==================================================\n ", APP_NAME, APP_VERSION);
@@ -108,7 +143,8 @@ int main(int argc, char *argv[])
     /* 2. 搜索同级目录或指定目录下的所有 keil 工程并打印 */
     _keil_prj_path_list = prj_path_list_init(MAX_PATH_QTY);
 
-    search_files_by_extension(_current_dir, 
+    search_files_by_extension(_current_dir,
+                              buff_len,
                               _keil_prj_extension, 
                               sizeof(_keil_prj_extension) / sizeof(char *),
                               _keil_prj_path_list);
@@ -122,7 +158,6 @@ int main(int argc, char *argv[])
     }
 
     /* 3. 参数处理 */
-    int  result = 0;
     char input_param[MAX_PATH] = {0};
     char keil_prj_name[MAX_PRJ_NAME_SIZE] = {0};
     if (argc > 1)
@@ -217,9 +252,9 @@ int main(int argc, char *argv[])
     /* 5. 获取启用的 project target */
     /* 打开同名的 .uvoptx 或 .uvopt 文件 */
     char target_name[MAX_PRJ_NAME_SIZE] = {0};
-    snprintf(file_path, sizeof(file_path), "%s\\%s.uvopt", _current_dir, keil_prj_name);
+    snprintf(file_path, file_path_size, "%s\\%s.uvopt", _current_dir, keil_prj_name);
     if (is_keil4_prj == false) {
-        strncat_s(file_path, sizeof(file_path), "x", 1);
+        strncat_s(file_path, file_path_size, "x", 1);
     }
 
     /* 不存在 uvoptx 文件时，默认选择第一个 target name */
@@ -233,12 +268,12 @@ int main(int argc, char *argv[])
 
     /* 6. 获取 map 和 htm 文件所在的目录及 device 和 output_name 信息 */
     /* 打开同名的 .uvprojx 或 .uvproj 文件 */
-    snprintf(file_path, sizeof(file_path), "%s\\%s.uvproj", _current_dir, keil_prj_name);
+    snprintf(file_path, file_path_size, "%s\\%s.uvproj", _current_dir, keil_prj_name);
     if (is_keil4_prj == false) {
-        strncat_s(file_path, sizeof(file_path), "x", 1);
+        strncat_s(file_path, file_path_size, "x", 1);
     }
     
-    char target_name_label[MAX_PRJ_NAME_SIZE] = {0};
+    char target_name_label[MAX_PRJ_NAME_SIZE * 2] = {0};
 
     if (is_has_target) {
         snprintf(target_name_label, sizeof(target_name_label), "%s%s", LABEL_TARGET_NAME, target_name);    
@@ -312,8 +347,8 @@ int main(int argc, char *argv[])
     /* 7. 从 build_log 文件中获取被改名的文件信息 */
     if (uvprojx_file.output_path[0] != '\0')
     {
-        res = combine_path(file_path, keil_prj_path, uvprojx_file.output_path);
-        snprintf(file_path, sizeof(file_path), "%s%s.build_log.htm", file_path, uvprojx_file.output_name);
+        res = combine_path(file_path, file_path_size, keil_prj_path, uvprojx_file.output_path);
+        snprintf(file_path, file_path_size, "%s%s.build_log.htm", file_path, uvprojx_file.output_name);
         if (res == 0)
         {
             build_log_file_process(file_path, &_file_path_list_head);
@@ -330,14 +365,14 @@ int main(int argc, char *argv[])
         }
     }
     else {
-        log_print(_log_file, "\n[WARNING] is empty, can't read '.build_log.htm' file\n \n");
+        log_print(_log_file, "\n[WARNING] %s is empty, can't read '.build_log.htm' file\n \n", LABEL_OUTPUT_DIRECTORY);
     }
 
     /* 8. 处理剩余的重名文件 */
     file_rename_process(&_file_path_list_head);
 
     /* 9. 打开 map 文件，获取 Load Region 和 Execution Region */
-    res = combine_path(file_path, keil_prj_path, uvprojx_file.listing_path);
+    res = combine_path(file_path, file_path_size, keil_prj_path, uvprojx_file.listing_path);
     if (res == -1)
     {
         log_print(_log_file, "\n[ERROR] %s not a absolute path\n \n", keil_prj_path);
@@ -351,7 +386,7 @@ int main(int argc, char *argv[])
         goto __exit;
     }
 
-    snprintf(file_path, sizeof(file_path), "%s%s.map", file_path, uvprojx_file.output_name);
+    snprintf(file_path, file_path_size, "%s%s.map", file_path, uvprojx_file.output_name);
     log_save(_log_file, "[map file path] %s\n", file_path);
 
     res = map_file_process(file_path, 
@@ -476,7 +511,7 @@ int main(int argc, char *argv[])
     }
 
     /* 10.2 打开记录文件，打开失败则新建 */
-    snprintf(file_path, sizeof(file_path), "%s\\%s-record.txt", _current_dir, APP_NAME);
+    snprintf(file_path, file_path_size, "%s\\%s-record.txt", _current_dir, APP_NAME);
 
     bool is_has_record = true;
     FILE *p_file = fopen(file_path, "r");
@@ -641,26 +676,28 @@ int main(int argc, char *argv[])
     }
 
     /* 12. 打印栈使用情况 */
-    if (uvprojx_file.output_path)
-    res = combine_path(file_path, keil_prj_path, uvprojx_file.output_path);
-    if (res == -1)
+    if (uvprojx_file.output_path[0] != '\0')
     {
-        log_print(_log_file, "\n[ERROR] %s not a absolute path\n \n", keil_prj_path);
-        result = -17;
-        goto __exit;
+        res = combine_path(file_path, file_path_size, keil_prj_path, uvprojx_file.output_path);
+        if (res == -1)
+        {
+            log_print(_log_file, "\n[ERROR] %s not a absolute path\n \n", keil_prj_path);
+            result = -17;
+            goto __exit;
+        }
+        else if (res == -2)
+        {
+            log_print(_log_file, "\n[ERROR] relative paths go up more levels than absolute paths\n \n");
+            result = -18;
+            goto __exit;
+        }
+        snprintf(file_path, file_path_size, "%s%s.htm", file_path, uvprojx_file.output_name);
+        log_save(_log_file, "[htm file path] %s\n", file_path);
+        stack_print_process(file_path);
     }
-    else if (res == -2)
-    {
-        log_print(_log_file, "\n[ERROR] relative paths go up more levels than absolute paths\n \n");
-        result = -18;
-        goto __exit;
-    }
-    snprintf(file_path, sizeof(file_path), "%s%s.htm", file_path, uvprojx_file.output_name);
-    log_save(_log_file, "[htm file path] %s\n", file_path);
-    stack_print_process(file_path);
 
     /* 13. 保存本次 region 信息至记录文件 */
-    snprintf(file_path, sizeof(file_path), "%s\\%s-record.txt", _current_dir, APP_NAME);
+    snprintf(file_path, file_path_size, "%s\\%s-record.txt", _current_dir, APP_NAME);
 
     if (uvprojx_file.is_enable_lto) {
         p_file = fopen(file_path, "w+");
@@ -701,6 +738,12 @@ int main(int argc, char *argv[])
     fclose(p_file);
     
 __exit:
+    if (_current_dir) {
+        free(_current_dir);
+    }
+    if (file_path) {
+        free(file_path);
+    }
     object_info_free(&_object_info_head);
     object_info_free(&_record_object_info_head);
     load_region_free(&_load_region_head);
@@ -2298,13 +2341,15 @@ void stack_print_process(const char *file_path)
 /**
  * @brief  按扩展名搜索文件
  * @note   本函数不会递归搜索
- * @param  dir: 要搜索的目录
+ * @param  dir:             要搜索的目录
+ * @param  dir_len:         要搜索的目录长度
  * @param  extension[]:     扩展名，支持多个
  * @param  extension_qty:   扩展名数量
  * @param  list:            [out] 保存搜索到的文件路径
  * @retval None
  */
 void search_files_by_extension(const char *dir, 
+                               size_t dir_len,
                                const char *extension[], 
                                size_t extension_qty, 
                                struct prj_path_list *list)
@@ -2313,12 +2358,14 @@ void search_files_by_extension(const char *dir,
     WIN32_FIND_DATA find_data;
 
     /* 加上 '*' 以搜索所有文件和文件夹 */
-    char path[MAX_PATH];
-    snprintf(path, sizeof(path), "%s\\*", dir);
+    char *path = (char *)malloc(dir_len + 3);
+    snprintf(path, dir_len + 3, "%s\\*", dir);
 
     /* 开始搜索 */
     h_find = FindFirstFile(path, &find_data);
-    if (h_find == INVALID_HANDLE_VALUE) {
+    if (h_find == INVALID_HANDLE_VALUE) 
+    {
+        free(path);
         return;
     }
 
@@ -2329,14 +2376,15 @@ void search_files_by_extension(const char *dir,
             char *str = strrchr(find_data.cFileName, '.');
             if (str && is_same_string(str, extension, extension_qty))
             {
-                char *file_path = malloc(MAX_PATH * sizeof(char));
-                snprintf(file_path, MAX_PATH * sizeof(char), "%s\\%s", dir, find_data.cFileName);
+                char *file_path = malloc(dir_len * 2);
+                snprintf(file_path, dir_len * 2, "%s\\%s", dir, find_data.cFileName);
                 prj_path_list_add(list, file_path);
             }
         }
     } while (FindNextFile(h_find, &find_data));
 
     FindClose(h_find);
+    free(path);
 }
 
 
@@ -2384,16 +2432,18 @@ void log_write(FILE *p_log,
  * @brief  拼接路径
  * @note   
  * @param  out_path:        [out] 拼接后输出的路径
+ * @param  out_path_size:   输出的路径的大小
  * @param  absolute_path:   输入的绝对路径
  * @param  relative_path:   输入的相对路径
  * @retval 0: 正常 | -x: 错误
  */
 int combine_path(char *out_path, 
+                 size_t out_path_size,
                  const char *absolute_path, 
                  const char *relative_path)
 {
     /* 1. 将绝对路径 absolute_path 的文件名和扩展名去除 */
-    strncpy_s(out_path, MAX_PATH, absolute_path, strnlen_s(absolute_path, MAX_PATH));
+    strncpy_s(out_path, out_path_size, absolute_path, strnlen_s(absolute_path, MAX_PATH));
 
     char *last_slash = strrchr(out_path, '\\');
     if (last_slash == NULL) {
@@ -2415,7 +2465,7 @@ int combine_path(char *out_path,
     size_t dir_hierarchy[MAX_DIR_HIERARCHY];
 
     /* 逐字符遍历路径 */
-    for (size_t i = 0; i < strnlen_s(out_path, MAX_PATH); i++)
+    for (size_t i = 0; i < strnlen_s(out_path, out_path_size); i++)
     {
         if (out_path[i] == '\\' || out_path[i] == '/')
         {
@@ -2467,10 +2517,10 @@ int combine_path(char *out_path,
     }
 
     /* 5. 根据 2 记录的偏移值和 3 获得的级数，将 absolute_path 和 relative_path 拼接 */
-    strncat_s(out_path, MAX_PATH, "\\", 1);
-    strncat_s(out_path, MAX_PATH, &relative_path[valid_path_offset], strnlen_s(&relative_path[valid_path_offset], MAX_PATH));
+    strncat_s(out_path, out_path_size, "\\", 1);
+    strncat_s(out_path, out_path_size, &relative_path[valid_path_offset], strnlen_s(&relative_path[valid_path_offset], MAX_PATH));
 
-    for (size_t i = 0; i < strnlen_s(out_path, MAX_PATH); i++)
+    for (size_t i = 0; i < strnlen_s(out_path, out_path_size); i++)
     {
         if (out_path[i] == '/') {
             out_path[i] = '\\';

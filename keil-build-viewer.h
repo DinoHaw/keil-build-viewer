@@ -13,7 +13,7 @@
 #define MAX_DIR_HIERARCHY               32      /* 最大目录层级 */
 #define MAX_PATH_QTY                    32      /* 最大目录数量 */
 #define MAX_FILE_QTY                    512     /* 最大文件数量 */
-#define MAX_PRJ_NAME_SIZE               64      /* 最大工程名称长度 */
+#define MAX_PRJ_NAME_SIZE               128     /* 最大工程名称长度 */
 #define OBJECT_INFO_STR_QTY             7       /* Code + (inc. data) + RO Data + RW Data + ZI Data + Debug + Object Name */
 
 #define USED_SYMBOL                     "■"
@@ -176,7 +176,8 @@ bool                    is_keil_project             (const char *path);
 bool                    is_same_string              (const char *str1, 
                                                      const char *str2[], 
                                                      size_t      str2_qty);
-int                     combine_path                (char       *out_path, 
+int                     combine_path                (char       *out_path,
+                                                     size_t      out_path_size,
                                                      const char *absolute_path, 
                                                      const char *relative_path);
 bool                    file_path_add               (struct file_path_list **path_head,
@@ -207,7 +208,8 @@ struct exec_region *    load_region_add_exec_region (struct load_region **region
                                                      uint32_t    used_size,
                                                      MEMORY_TYPE type);
 void                    load_region_free            (struct load_region **region_head);
-void                    search_files_by_extension   (const char *dir, 
+void                    search_files_by_extension   (const char *dir,
+                                                     size_t dir_len,
                                                      const char *extension[], 
                                                      size_t extension_qty, 
                                                      struct prj_path_list *list);
