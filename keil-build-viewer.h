@@ -8,16 +8,29 @@
 #include <windows.h>
 
 #define APP_NAME                        "keil-build-viewer"
-#define APP_VERSION                     "v1.4"
+#define APP_VERSION                     "v1.5"
 
-#define MAX_DIR_HIERARCHY               32      /* ◊Ó¥Ûƒø¬º≤„º∂ */
-#define MAX_PATH_QTY                    32      /* ◊Ó¥Ûƒø¬º ˝¡ø */
-#define MAX_FILE_QTY                    512     /* ◊Ó¥ÛŒƒº˛ ˝¡ø */
-#define MAX_PRJ_NAME_SIZE               128     /* ◊Ó¥Ûπ§≥Ã√˚≥∆≥§∂» */
+#define MAX_DIR_HIERARCHY               32      /* ÊúÄÂ§ßÁõÆÂΩïÂ±ÇÁ∫ß */
+#define MAX_PATH_QTY                    32      /* ÊúÄÂ§ßÁõÆÂΩïÊï∞Èáè */
+#define MAX_FILE_QTY                    512     /* ÊúÄÂ§ßÊñá‰ª∂Êï∞Èáè */
+#define MAX_PRJ_NAME_SIZE               128     /* ÊúÄÂ§ßÂ∑•Á®ãÂêçÁß∞ÈïøÂ∫¶ */
 #define OBJECT_INFO_STR_QTY             7       /* Code + (inc. data) + RO Data + RW Data + ZI Data + Debug + Object Name */
 
-#define USED_SYMBOL                     "°ˆ"
-#define ZI_SYMBOL                       "°ı"
+#define ENABLE_REFER_TO_KEIL_DIALOG     0       /* ÂΩì chip Ê≤°ÊúâÂØπÂ∫îÁöÑ keil pack ‰∏î‰ΩøÁî®Ëá™ÂÆö‰πâÁöÑ scatter file Êó∂ÔºåÊòØÂê¶ÂèÇËÄÉ keil ÁöÑ memory dialog */
+
+#define UNKNOWN_MEMORY_ID               1
+#define ZI_SYMBOL_0                     0x4F    /* O */
+#define USED_SYMBOL_0                   0x23    /* # */
+#define ZI_SYMBOL_1                     0x4F    /* O */
+#define USED_SYMBOL_1                   0x58    /* X */
+#define ZI_SYMBOL_GBK_H                 0xA1    /* ‚ñ° */
+#define ZI_SYMBOL_GBK_L                 0xF5
+#define USED_SYMBOL_GBK_H               0xA1    /* ‚ñ† */
+#define USED_SYMBOL_GBK_L               0xF6
+#define ZI_SYMBOL_BIG5_H                0xA1    /* ‚ñ° */
+#define ZI_SYMBOL_BIG5_L                0xBC
+#define USED_SYMBOL_BIG5_H              0xA1    /* ‚ñ† */
+#define USED_SYMBOL_BIG5_L              0xBD
 #define UNUSE_SYMBOL                    "_"
 
 #define STR_ZERO_INIT                   " Zero "
@@ -44,30 +57,65 @@
 #define LABEL_TARGET_NAME               "<TargetName>"
 #define LABEL_IS_CURRENT_TARGET         "<IsCurrentTarget>"
 #define LABEL_DEVICE                    "<Device>"
+#define LABEL_VENDOR                    "<Vendor>"
 #define LABEL_CPU                       "<Cpu>"
 #define LABEL_OUTPUT_DIRECTORY          "<OutputDirectory>"
 #define LABEL_OUTPUT_NAME               "<OutputName>"
 #define LABEL_LISTING_PATH              "<ListingPath>"
 #define LABEL_IS_CREATE_MAP             "<AdsLLst>"
 #define LABEL_AC6_LTO                   "<v6Lto>"
+#define LABEL_IS_KEIL_SCATTER           "<umfTarg>"
 #define LABEL_END_GROUPS                "</Groups>"
 #define LABEL_END_FILE                  "</File>"
 #define LABEL_END_FILES                 "</Files>"
-#define LABEL_END_CADS                  "</Cads>"                      
+#define LABEL_END_CADS                  "</Cads>"
+#define LABEL_END_LDADS                 "</LDads>"                      
 #define LABEL_GROUP_NAME                "<GroupName>"
 #define LABEL_FILE_NAME                 "<FileName>"
 #define LABEL_FILE_TYPE                 "<FileType>"
 #define LABEL_FILE_PATH                 "<FilePath>"
 #define LABEL_INCLUDE_IN_BUILD          "<IncludeInBuild>"
+#define LABEL_ONCHIP_MEMORY             "<OnChipMemories>"
+#define LABEL_END_ONCHIP_MEMORY         "</OnChipMemories>"
+#define LABEL_MEMORY_AREA               "<OCR_RVCT"
+#define LABLE_END_MEMORY_AREA           "</OCR_RVCT"
+#define LABEL_MEMORY_TYPE               "<Type>"
+#define LABEL_MEMORY_ADDRESS            "<StartAddress>"
+#define LABEL_MEMORY_SIZE               "<Size>"
 
 #define log_save(log, fmt, ...)         log_write(log, false, fmt, ##__VA_ARGS__)
 #define log_print(log, fmt, ...)        log_write(log, true, fmt, ##__VA_ARGS__)
 
 
+typedef enum
+{
+    ENCODING_TYPE_GBK = 0x00,
+    ENCODING_TYPE_BIG5,
+    ENCODING_TYPE_OTHER,
+
+} ENCODING_TYPE;
+
+typedef enum
+{
+    PROGRESS_STYLE_0 = 0x00,
+    PROGRESS_STYLE_1,
+    PROGRESS_STYLE_2,
+    
+} PROGRESS_STYLE;
+
+typedef enum
+{
+    
+    MEMORY_PRINT_MODE_0 = 0x00, /* keil pack Êúâ RAM Âíå ROM ‰ø°ÊÅØÔºàÂ§öÊï∞ÊÉÖÂÜµÔºâ */
+    MEMORY_PRINT_MODE_1,        /* keil pack Ê≤°Êúâ RAM Âíå ROM ‰ø°ÊÅØÔºå‰ΩÜ memory ‰ΩøÁî®‰∫Ü keil dialog ÈÖçÁΩÆ */
+    MEMORY_PRINT_MODE_2,        /* keil pack Ê≤°Êúâ RAM Âíå ROM ‰ø°ÊÅØÔºåÂπ∂‰∏î‰ΩøÁî®Ëá™ÂÆö‰πâÁöÑ scatter file */
+
+} MEMORY_PRINT_MODE;
+
 typedef enum 
 {
     MEMORY_TYPE_NONE = 0x00,
-    MEMORY_TYPE_SRAM,
+    MEMORY_TYPE_RAM,
     MEMORY_TYPE_FLASH,
     MEMORY_TYPE_UNKNOWN,
 
@@ -83,7 +131,7 @@ typedef enum
 } OBJECT_FILE_TYPE;
 
 
-/* keil π§≥Ã¬∑æ∂¥Ê¥¢¡¥±Ì */
+/* keil Â∑•Á®ãË∑ØÂæÑÂ≠òÂÇ®ÈìæË°® */
 struct prj_path_list
 {
     char **items;
@@ -113,11 +161,12 @@ struct region_block
 struct exec_region
 {
     char *name;
-    size_t memory_id;       /* ¥” 1 ø™ º£¨ 1 πÃ∂®Œ™ unknown */
+    size_t memory_id;       /* ‰ªé 1 ÂºÄÂßãÔºå 1 Âõ∫ÂÆö‰∏∫ unknown */
     uint32_t base_addr;
     uint32_t size;
     uint32_t used_size;
-    MEMORY_TYPE type;
+    MEMORY_TYPE memory_type;
+    bool is_offchip;
     bool is_printed;
 
     struct region_block *zi_block;
@@ -139,15 +188,16 @@ struct memory_info
     uint32_t base_addr;
     uint32_t size;
     MEMORY_TYPE type;
-    bool is_printed;
+    bool is_from_pack;
+    bool is_offchip;
     struct memory_info *next;
 };
 
 struct file_path_list
 {
-    char *old_name;         /* ‘≠√˚ */
-    char *object_name;      /* ∏¸∏ƒŒ™ .o ∫Û◊∫√˚µƒ√˚≥∆ */
-    char *new_object_name;  /* “Ú÷ÿ√˚∂¯∏ƒ√˚∫Ûµƒ√˚≥∆£¨Œ™ .o ∫Û◊∫ */
+    char *old_name;         /* ÂéüÂêç */
+    char *object_name;      /* Êõ¥Êîπ‰∏∫ .o ÂêéÁºÄÂêçÁöÑÂêçÁß∞ */
+    char *new_object_name;  /* Âõ†ÈáçÂêçËÄåÊîπÂêçÂêéÁöÑÂêçÁß∞Ôºå‰∏∫ .o ÂêéÁºÄ */
     char *path;
     bool is_rename;
     OBJECT_FILE_TYPE file_type;
@@ -162,8 +212,10 @@ struct command_list
 
 struct uvprojx_info
 {
-    bool is_has_user_lib;
+    bool is_has_pack;
     bool is_enable_lto;
+    bool is_has_user_lib;
+    bool is_custom_scatter;
     char chip[MAX_PRJ_NAME_SIZE];
     char target_name[MAX_PRJ_NAME_SIZE];
     char output_name[MAX_PRJ_NAME_SIZE];
@@ -190,7 +242,9 @@ bool                    memory_info_add             (struct memory_info **memory
                                                      size_t      id,
                                                      uint32_t    base_addr,
                                                      uint32_t    size,
-                                                     MEMORY_TYPE type);
+                                                     MEMORY_TYPE mem_type,
+                                                     bool        is_offchip,
+                                                     bool        is_from_pack);
 void                    memory_info_free            (struct memory_info **memory_head);
 bool                    object_info_add             (struct object_info **object_head,
                                                      const char *name,
@@ -206,7 +260,8 @@ struct exec_region *    load_region_add_exec_region (struct load_region **region
                                                      uint32_t    base_addr,
                                                      uint32_t    size,
                                                      uint32_t    used_size,
-                                                     MEMORY_TYPE type);
+                                                     MEMORY_TYPE mem_type,
+                                                     bool        is_offchip);
 void                    load_region_free            (struct load_region **region_head);
 void                    search_files_by_extension   (const char *dir,
                                                      size_t dir_len,
@@ -226,21 +281,23 @@ int                     parameter_process           (int    param_qty,
 bool                    uvoptx_file_process         (const char *file_path, 
                                                      char *target_name,
                                                      size_t max_size);
-int                     uvprojx_file_process        (struct memory_info **memory_head,
-                                                     const char *file_path, 
+int                     uvprojx_file_process        (const char *file_path, 
                                                      const char *target_name,
                                                      struct uvprojx_info *out_info,
                                                      bool is_get_target_name);
+bool                    memory_area_process         (const char *str, bool is_new);
 bool                    file_path_process           (const char *str, bool *is_has_user_lib);
-void                    build_log_file_process      (const char *file_path, struct file_path_list **path_head);
-void                    file_rename_process         (struct file_path_list **path_head);
+void                    build_log_file_process      (const char *file_path);
+void                    file_rename_process         (void);
 int                     map_file_process            (const char *file_path, 
                                                      struct load_region **region_head,
                                                      struct object_info **object_head,
-                                                     bool is_get_user_lib);
+                                                     bool is_get_user_lib,
+                                                     bool is_match_memory);
 int                     region_info_process         (FILE *p_file, 
                                                      long read_start_pos,
-                                                     struct load_region **region_head);
+                                                     struct load_region **region_head,
+                                                     bool is_match_memory);
 void                    region_zi_process           (struct exec_region **e_region,
                                                      char *text,
                                                      size_t size_pos);
@@ -253,16 +310,27 @@ int                     record_file_process         (const char *file_path,
                                                      struct load_region **region_head,
                                                      struct object_info **object_head,
                                                      bool *is_has_object,
-                                                     bool *is_has_region);
+                                                     bool *is_has_region,
+                                                     bool is_match_memory);
 void                    object_print_process        (struct object_info *object_head,
                                                      size_t max_path_len, 
                                                      bool is_has_record);
-void                    memory_print_process        (struct memory_info *memory_head,
-                                                     struct exec_region *e_region, 
-                                                     MEMORY_TYPE type, 
-                                                     size_t max_region_name,
+void                    memory_mode0_print          (struct exec_region *e_region,
+                                                     MEMORY_TYPE mem_type,
+                                                     size_t max_region_name, 
                                                      bool is_has_record,
                                                      bool is_print_null);
+void                    memory_mode1_print          (struct exec_region *e_region,
+                                                     MEMORY_TYPE mem_type,
+                                                     bool is_offchip,
+                                                     size_t max_region_name, 
+                                                     bool is_has_record);
+void                    memory_mode2_print          (struct exec_region *e_region,
+                                                     size_t max_region_name, 
+                                                     bool is_has_record);
+void                    progress_print              (struct exec_region *region,
+                                                     size_t max_region_name, 
+                                                     bool is_has_record);
 void                    stack_print_process         (const char *file_path);
 void                    log_write                   (FILE *p_log, 
                                                      bool is_print, 

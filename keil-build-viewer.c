@@ -29,16 +29,19 @@
  * This file is keil-build-viewer.
  *
  * Author:        Dino Haw <347341799@qq.com>
- * Version:       v1.4
+ * Version:       v1.5
  * Change Logs:
  * Version  Date         Author     Notes
  * v1.0     2023-11-10   Dino       the first version
- * v1.1     2023-11-11   Dino       1. ÊÊÅä RAM ºÍ ROM µÄ½âÎö
- * v1.2     2023-11-11   Dino       1. ÊÊÅä keil4 µÄ map ÎÄ¼ş
- *                                  2. Ôö¼Ó¼ì²âµ½¿ªÆô LTO ºó´òÓ¡ÌáÊ¾ĞÅÏ¢
- *                                  3. ĞŞ¸´¿ªÆô LTO ºóÎŞ´òÓ¡ region µÄÎÊÌâ
- * v1.3     2023-11-12   Dino       1. ĞŞ¸´¹¤³Ì´æÔÚ¶à¸ö lib Ê±½ö½âÎöÒ»¸öµÄÎÊÌâ
- * v1.4     2023-11-21   Dino       1. Ôö¼Ó½«±¾¹¤¾ß·ÅÖÃÓÚÏµÍ³»·¾³±äÁ¿ Path Ëùº¬Ä¿Â¼µÄ¹¦ÄÜ
+ * v1.1     2023-11-11   Dino       1. é€‚é… RAM å’Œ ROM çš„è§£æ
+ * v1.2     2023-11-11   Dino       1. é€‚é… keil4 çš„ map æ–‡ä»¶
+ *                                  2. å¢åŠ æ£€æµ‹åˆ°å¼€å¯ LTO åæ‰“å°æç¤ºä¿¡æ¯
+ *                                  3. ä¿®å¤å¼€å¯ LTO åæ— æ‰“å° region çš„é—®é¢˜
+ * v1.3     2023-11-12   Dino       1. ä¿®å¤å·¥ç¨‹å­˜åœ¨å¤šä¸ª lib æ—¶ä»…è§£æä¸€ä¸ªçš„é—®é¢˜
+ * v1.4     2023-11-21   Dino       1. å¢åŠ å°†æœ¬å·¥å…·æ”¾ç½®äºç³»ç»Ÿç¯å¢ƒå˜é‡ Path æ‰€å«ç›®å½•çš„åŠŸèƒ½
+ * v1.5     2023-11-30   Dino       1. æ–°å¢æ›´å¤šçš„ progress bar æ ·å¼
+ *                                  2. æ–°å¢è§£æè‡ªå®šä¹‰çš„ memory area
+ *                                  3. ä¿®å¤ RAM å’Œ ROM ä¿¡æ¯ç¼ºå¤±æ—¶æ˜¾ç¤ºå¼‚å¸¸çš„é—®é¢˜
  */
 
 /* Includes ------------------------------------------------------------------*/
@@ -51,11 +54,9 @@ static bool                     _is_display_object = true;
 static bool                     _is_display_path   = true;
 static char                     _line_text[1024];
 static char *                   _current_dir;
+static ENCODING_TYPE            _encoding_type  = ENCODING_TYPE_GBK;
+static PROGRESS_STYLE           _progress_style = PROGRESS_STYLE_0;
 static struct prj_path_list *   _keil_prj_path_list;
-static struct load_region *     _load_region_head;
-static struct load_region *     _record_load_region_head;
-static struct object_info *     _object_info_head;
-static struct object_info *     _record_object_info_head;
 static struct memory_info *     _memory_info_head;
 static struct file_path_list *  _file_path_list_head;
 static const char *             _keil_prj_extension[] = 
@@ -81,21 +82,50 @@ static struct command_list      _command_list[] =
         .cmd  = "-NOPATH",
         .desc = "NOT display each object file path",
     },
+    {
+        .cmd  = "-STYLE0",
+        .desc = "Progress bar style: following system (default)",
+    },
+    {
+        .cmd  = "-STYLE1",
+        .desc = "Progress bar style: |###OOO____| (when non-Chinese and not specified progress bar style)",
+    },
+    {
+        .cmd  = "-STYLE2",
+        .desc = "Progress bar style: |XXXOOO____|",
+    },
 };
 
 
 /**
- * @brief  Ö÷³ÌĞò
+ * @brief  ä¸»ç¨‹åº
  * @note   
- * @param  argc:    ²ÎÊıÊıÁ¿
- * @param  argv[]:  ²ÎÊıÁĞ±í
- * @retval 0: Õı³£ | -x: ´íÎó
+ * @param  argc:    å‚æ•°æ•°é‡
+ * @param  argv[]:  å‚æ•°åˆ—è¡¨
+ * @retval 0: æ­£å¸¸ | -x: é”™è¯¯
  */
 int main(int argc, char *argv[])
 {
     clock_t run_time = clock();
 
-    /* 1. »ñÈ¡³ÌĞòÔËĞĞµÄ¹¤×÷Ä¿Â¼ */
+    struct load_region *load_region_head = NULL;
+    struct object_info *object_info_head = NULL;
+    struct load_region *record_load_region_head = NULL;
+    struct object_info *record_object_info_head = NULL;
+
+    /* è·å–ç¼–ç æ ¼å¼ */
+    UINT acp = GetACP();
+    if (acp == 936) {
+        _encoding_type = ENCODING_TYPE_GBK;
+    } 
+    else if (acp == 950) {
+        _encoding_type = ENCODING_TYPE_BIG5;
+    } 
+    else {
+        _encoding_type = ENCODING_TYPE_OTHER;
+    }
+
+    /* 1. è·å–ç¨‹åºè¿è¡Œçš„å·¥ä½œç›®å½• */
     int result = 0;
     DWORD buff_len = GetCurrentDirectory(0, NULL);
     if (buff_len == 0) 
@@ -124,7 +154,7 @@ int main(int argc, char *argv[])
         goto __exit;
     }
 
-    /* ´´½¨ log ÎÄ¼ş */
+    /* åˆ›å»º log æ–‡ä»¶ */
     char *file_path = NULL;
     size_t file_path_size = buff_len * 2;
     file_path = (char *)malloc(file_path_size);
@@ -140,7 +170,7 @@ int main(int argc, char *argv[])
 
     log_print(_log_file, "\n=================================================== %s %s ==================================================\n ", APP_NAME, APP_VERSION);
 
-    /* 2. ËÑË÷Í¬¼¶Ä¿Â¼»òÖ¸¶¨Ä¿Â¼ÏÂµÄËùÓĞ keil ¹¤³Ì²¢´òÓ¡ */
+    /* 2. æœç´¢åŒçº§ç›®å½•æˆ–æŒ‡å®šç›®å½•ä¸‹çš„æ‰€æœ‰ keil å·¥ç¨‹å¹¶æ‰“å° */
     _keil_prj_path_list = prj_path_list_init(MAX_PATH_QTY);
 
     search_files_by_extension(_current_dir,
@@ -157,7 +187,7 @@ int main(int argc, char *argv[])
         log_save(_log_file, "\t%s\n", _keil_prj_path_list->items[i]);
     }
 
-    /* 3. ²ÎÊı´¦Àí */
+    /* 3. å‚æ•°å¤„ç† */
     char input_param[MAX_PATH] = {0};
     char keil_prj_name[MAX_PRJ_NAME_SIZE] = {0};
     if (argc > 1)
@@ -206,8 +236,9 @@ int main(int argc, char *argv[])
 
     log_save(_log_file, "\n[User input] %s\n", input_param);
     log_save(_log_file, "[Current folder] %s\n", _current_dir);
+    log_save(_log_file, "[Encoding] %d\n", acp);
 
-    /* 4. È·¶¨ keil ¹¤³Ì */
+    /* 4. ç¡®å®š keil å·¥ç¨‹ */
     char *keil_prj_path;
     if (input_param[0] != '\0')
     {
@@ -249,15 +280,15 @@ int main(int argc, char *argv[])
         *dot = '\0';
     }
 
-    /* 5. »ñÈ¡ÆôÓÃµÄ project target */
-    /* ´ò¿ªÍ¬ÃûµÄ .uvoptx »ò .uvopt ÎÄ¼ş */
+    /* 5. è·å–å¯ç”¨çš„ project target */
+    /* æ‰“å¼€åŒåçš„ .uvoptx æˆ– .uvopt æ–‡ä»¶ */
     char target_name[MAX_PRJ_NAME_SIZE] = {0};
     snprintf(file_path, file_path_size, "%s\\%s.uvopt", _current_dir, keil_prj_name);
     if (is_keil4_prj == false) {
         strncat_s(file_path, file_path_size, "x", 1);
     }
 
-    /* ²»´æÔÚ uvoptx ÎÄ¼şÊ±£¬Ä¬ÈÏÑ¡ÔñµÚÒ»¸ö target name */
+    /* ä¸å­˜åœ¨ uvoptx æ–‡ä»¶æ—¶ï¼Œé»˜è®¤é€‰æ‹©ç¬¬ä¸€ä¸ª target name */
     bool is_has_target = true;
     if (uvoptx_file_process(file_path, target_name, sizeof(target_name)) == false) 
     {
@@ -266,8 +297,8 @@ int main(int argc, char *argv[])
         log_print(_log_file, "[WARNING] The first project target is selected by default.\n");
     }
 
-    /* 6. »ñÈ¡ map ºÍ htm ÎÄ¼şËùÔÚµÄÄ¿Â¼¼° device ºÍ output_name ĞÅÏ¢ */
-    /* ´ò¿ªÍ¬ÃûµÄ .uvprojx »ò .uvproj ÎÄ¼ş */
+    /* 6. è·å– map å’Œ htm æ–‡ä»¶æ‰€åœ¨çš„ç›®å½•åŠ device å’Œ output_name ä¿¡æ¯ */
+    /* æ‰“å¼€åŒåçš„ .uvprojx æˆ– .uvproj æ–‡ä»¶ */
     snprintf(file_path, file_path_size, "%s\\%s.uvproj", _current_dir, keil_prj_name);
     if (is_keil4_prj == false) {
         strncat_s(file_path, file_path_size, "x", 1);
@@ -282,8 +313,7 @@ int main(int argc, char *argv[])
     }
 
     struct uvprojx_info uvprojx_file = {0};
-    int res = uvprojx_file_process(&_memory_info_head, 
-                                   file_path, 
+    int res = uvprojx_file_process(file_path, 
                                    target_name_label, 
                                    &uvprojx_file, 
                                    !is_has_target);
@@ -313,6 +343,10 @@ int main(int argc, char *argv[])
     log_save(_log_file, "[Output name] %s\n", uvprojx_file.output_name);
     log_save(_log_file, "[Output path] %s\n", uvprojx_file.output_path);
     log_save(_log_file, "[Listing path] %s\n", uvprojx_file.listing_path);
+    log_save(_log_file, "[Is has pack] %d\n", uvprojx_file.is_has_pack);
+    log_save(_log_file, "[Is enbale LTO] %d\n", uvprojx_file.is_enable_lto);
+    log_save(_log_file, "[Is has user library] %d\n", uvprojx_file.is_has_user_lib);
+    log_save(_log_file, "[Is custom scatter file] %d\n", uvprojx_file.is_custom_scatter);
 
     if (uvprojx_file.output_name[0] == '\0') 
     {
@@ -340,18 +374,18 @@ int main(int argc, char *argv[])
          memory != NULL; 
          memory = memory->next)
     {
-        log_save(_log_file, "[name] %s [base addr] 0x%.8X [size] 0x%.8X [type] %d [ID] %d\n", 
-                 memory->name, memory->base_addr, memory->size, memory->type, memory->id);
+        log_save(_log_file, "[name] %s [base addr] 0x%.8X [size] 0x%.8X [type] %d [off-chip] %d [is pack] %d [ID] %d \n", 
+                 memory->name, memory->base_addr, memory->size, memory->type, memory->is_offchip, memory->is_from_pack, memory->id);
     }
 
-    /* 7. ´Ó build_log ÎÄ¼şÖĞ»ñÈ¡±»¸ÄÃûµÄÎÄ¼şĞÅÏ¢ */
+    /* 7. ä» build_log æ–‡ä»¶ä¸­è·å–è¢«æ”¹åçš„æ–‡ä»¶ä¿¡æ¯ */
     if (uvprojx_file.output_path[0] != '\0')
     {
         res = combine_path(file_path, file_path_size, keil_prj_path, uvprojx_file.output_path);
         snprintf(file_path, file_path_size, "%s%s.build_log.htm", file_path, uvprojx_file.output_name);
         if (res == 0)
         {
-            build_log_file_process(file_path, &_file_path_list_head);
+            build_log_file_process(file_path);
         }
         if (res == -1)
         {
@@ -368,10 +402,10 @@ int main(int argc, char *argv[])
         log_print(_log_file, "\n[WARNING] %s is empty, can't read '.build_log.htm' file\n \n", LABEL_OUTPUT_DIRECTORY);
     }
 
-    /* 8. ´¦ÀíÊ£ÓàµÄÖØÃûÎÄ¼ş */
-    file_rename_process(&_file_path_list_head);
+    /* 8. å¤„ç†å‰©ä½™çš„é‡åæ–‡ä»¶ */
+    file_rename_process();
 
-    /* 9. ´ò¿ª map ÎÄ¼ş£¬»ñÈ¡ Load Region ºÍ Execution Region */
+    /* 9. æ‰“å¼€ map æ–‡ä»¶ï¼Œè·å– Load Region å’Œ Execution Region */
     res = combine_path(file_path, file_path_size, keil_prj_path, uvprojx_file.listing_path);
     if (res == -1)
     {
@@ -390,9 +424,10 @@ int main(int argc, char *argv[])
     log_save(_log_file, "[map file path] %s\n", file_path);
 
     res = map_file_process(file_path, 
-                           &_load_region_head, 
-                           &_object_info_head, 
-                           uvprojx_file.is_has_user_lib);
+                           &load_region_head, 
+                           &object_info_head, 
+                           uvprojx_file.is_has_user_lib,
+                           true);   /* !uvprojx_file.is_custom_scatter */
     if (res == -1)
     {
         log_print(_log_file, "\n[ERROR] Check if a map file exists (Options for Target -> Listing -> Linker Listing)\n");
@@ -414,10 +449,9 @@ int main(int argc, char *argv[])
         result = -14;
         goto __exit;
     }
-    log_save(_log_file, "[Is enbale LTO] %d\n", uvprojx_file.is_enable_lto);
 
     log_save(_log_file, "\n[region info]\n");
-    for (struct load_region *l_region = _load_region_head; 
+    for (struct load_region *l_region = load_region_head; 
          l_region != NULL; 
          l_region = l_region->next)
     {
@@ -426,9 +460,9 @@ int main(int argc, char *argv[])
              e_region != NULL; 
              e_region = e_region->next)
         {
-            log_save(_log_file, "\t[execution region] %s, 0x%.8X, 0x%.8X, 0x%.8X [type] %d [ID] %d\n", 
+            log_save(_log_file, "\t[execution region] %s, 0x%.8X, 0x%.8X, 0x%.8X [memory type] %d [memory ID] %d\n", 
                      e_region->name, e_region->base_addr, e_region->size, 
-                     e_region->used_size, e_region->type, e_region->memory_id);
+                     e_region->used_size, e_region->memory_type, e_region->memory_id);
             
             for (struct region_block *block = e_region->zi_block;
                  block != NULL;
@@ -441,15 +475,15 @@ int main(int argc, char *argv[])
         }
     }
 
-    /* 10. ´òÓ¡ÓÃ»§ object ºÍÓÃ»§ library ÎÄ¼şµÄ flash ºÍ RAM Õ¼ÓÃÇé¿ö */
-    /* 10.1 ½«Â·¾¶°ó¶¨µ½ object info ¶ÔÓ¦µÄ path ³ÉÔ± */
+    /* 10. æ‰“å°ç”¨æˆ· object å’Œç”¨æˆ· library æ–‡ä»¶çš„ flash å’Œ RAM å ç”¨æƒ…å†µ */
+    /* 10.1 å°†è·¯å¾„ç»‘å®šåˆ° object info å¯¹åº”çš„ path æˆå‘˜ */
     size_t max_name_len = 0;
     size_t max_path_len = 0;
     for (struct file_path_list *path_temp = _file_path_list_head;
          path_temp != NULL;
          path_temp = path_temp->next)
     {
-        for (struct object_info *object_temp = _object_info_head;
+        for (struct object_info *object_temp = object_info_head;
              object_temp != NULL;
              object_temp = object_temp->next)
         {
@@ -467,7 +501,7 @@ int main(int argc, char *argv[])
             }
         }
 
-        /* ¼ÆËã³ö¸÷¸öÎÄ¼şÃû³ÆºÍÏà¶ÔÂ·¾¶µÄ×î³¤³¤¶È */
+        /* è®¡ç®—å‡ºå„ä¸ªæ–‡ä»¶åç§°å’Œç›¸å¯¹è·¯å¾„çš„æœ€é•¿é•¿åº¦ */
         size_t path_len  = strnlen_s(path_temp->path, MAX_PATH);
         size_t name_len1 = strnlen_s(path_temp->old_name, MAX_PATH);
         size_t name_len2 = strnlen_s(path_temp->new_object_name, MAX_PATH);
@@ -485,9 +519,9 @@ int main(int argc, char *argv[])
     log_save(_log_file, "\n[object name max length] %d\n", max_name_len);
     log_save(_log_file, "[object path max length] %d\n", max_path_len);
 
-    /* ´òÓ¡×¥È¡µÄ object Ãû³ÆºÍÂ·¾¶ */
+    /* æ‰“å°æŠ“å–çš„ object åç§°å’Œè·¯å¾„ */
     log_save(_log_file, "\n[object in map file]\n");
-    for (struct object_info *object_temp = _object_info_head;
+    for (struct object_info *object_temp = object_info_head;
          object_temp != NULL;
          object_temp = object_temp->next)
     {
@@ -495,7 +529,7 @@ int main(int argc, char *argv[])
                  object_temp->name, max_name_len + 1 - strlen(object_temp->name), " ", object_temp->path);
     }
 
-    /* ´òÓ¡×¥È¡µÄ keil ¹¤³ÌÖĞµÄÎÄ¼şÃûºÍÂ·¾¶ */
+    /* æ‰“å°æŠ“å–çš„ keil å·¥ç¨‹ä¸­çš„æ–‡ä»¶åå’Œè·¯å¾„ */
     log_save(_log_file, "\n[file path in keil project]\n");
     for (struct file_path_list *path_list = _file_path_list_head; 
          path_list != NULL; 
@@ -510,7 +544,7 @@ int main(int argc, char *argv[])
         }
     }
 
-    /* 10.2 ´ò¿ª¼ÇÂ¼ÎÄ¼ş£¬´ò¿ªÊ§°ÜÔòĞÂ½¨ */
+    /* 10.2 æ‰“å¼€è®°å½•æ–‡ä»¶ï¼Œæ‰“å¼€å¤±è´¥åˆ™æ–°å»º */
     snprintf(file_path, file_path_size, "%s\\%s-record.txt", _current_dir, APP_NAME);
 
     bool is_has_record = true;
@@ -529,26 +563,27 @@ int main(int argc, char *argv[])
     }
     fclose(p_file);
 
-    /* 10.3 Èô´æÔÚ¼ÇÂ¼ÎÄ¼ş£¬Ôò¶ÁÈ¡¸÷¸öÎÄ¼ş flash ºÍ RAM Õ¼ÓÃÇé¿ö */
+    /* 10.3 è‹¥å­˜åœ¨è®°å½•æ–‡ä»¶ï¼Œåˆ™è¯»å–å„ä¸ªæ–‡ä»¶ flash å’Œ RAM å ç”¨æƒ…å†µ */
     bool is_has_object = false;
     bool is_has_region = false;
     if (is_has_record)
     {
         record_file_process(file_path, 
-                            &_record_load_region_head, 
-                            &_record_object_info_head, 
+                            &record_load_region_head, 
+                            &record_object_info_head, 
                             &is_has_object,
-                            &is_has_region);
+                            &is_has_region,
+                            true);  /* !uvprojx_file.is_custom_scatter */
     }
 
     if (is_has_record)
     {
-        /* ½«¾ÉµÄ object ĞÅÏ¢°ó¶¨µ½Æ¥ÅäµÄĞÂµÄ object ĞÅÏ¢ÉÏ */
-        for (struct object_info *new_obj_info = _object_info_head;
+        /* å°†æ—§çš„ object ä¿¡æ¯ç»‘å®šåˆ°åŒ¹é…çš„æ–°çš„ object ä¿¡æ¯ä¸Š */
+        for (struct object_info *new_obj_info = object_info_head;
              new_obj_info != NULL;
              new_obj_info = new_obj_info->next)
         {
-            for (struct object_info *old_obj_info = _record_object_info_head;
+            for (struct object_info *old_obj_info = record_object_info_head;
                  old_obj_info != NULL;
                  old_obj_info = old_obj_info->next)
             {
@@ -559,8 +594,8 @@ int main(int argc, char *argv[])
         }
 
         log_save(_log_file, "\n[record region info]\n");
-        /* ½«¾ÉµÄ execution region °ó¶¨µ½Æ¥ÅäµÄĞÂµÄ execution region ÉÏ */
-        for (struct load_region *old_load_region = _record_load_region_head; 
+        /* å°†æ—§çš„ execution region ç»‘å®šåˆ°åŒ¹é…çš„æ–°çš„ execution region ä¸Š */
+        for (struct load_region *old_load_region = record_load_region_head; 
              old_load_region != NULL; 
              old_load_region = old_load_region->next)
         {
@@ -569,7 +604,7 @@ int main(int argc, char *argv[])
                  old_exec_region != NULL; 
                  old_exec_region = old_exec_region->next)
             {
-                for (struct load_region *new_load_region = _load_region_head; 
+                for (struct load_region *new_load_region = load_region_head; 
                      new_load_region != NULL; 
                      new_load_region = new_load_region->next)
                 {
@@ -584,12 +619,12 @@ int main(int argc, char *argv[])
                 }
                 log_save(_log_file, "\t[execution region] %s, 0x%.8X, 0x%.8X, 0x%.8X [type] %d [ID] %d\n", 
                          old_exec_region->name, old_exec_region->base_addr, old_exec_region->size, 
-                         old_exec_region->used_size, old_exec_region->type, old_exec_region->memory_id);
+                         old_exec_region->used_size, old_exec_region->memory_type, old_exec_region->memory_id);
             }
         }
     }
 
-    /* 10.4 ´òÓ¡²¢±£´æ±¾´Î±àÒëĞÅÏ¢ÖÁ¼ÇÂ¼ÎÄ¼ş */
+    /* 10.4 æ‰“å°å¹¶ä¿å­˜æœ¬æ¬¡ç¼–è¯‘ä¿¡æ¯è‡³è®°å½•æ–‡ä»¶ */
     if (uvprojx_file.is_enable_lto == false)
     {
         if (_is_display_object) 
@@ -606,10 +641,10 @@ int main(int argc, char *argv[])
             else {
                 len = max_name_len;
             }
-            object_print_process(_object_info_head, len, is_has_object);
+            object_print_process(object_info_head, len, is_has_object);
         }
 
-        /* ±£´æ±¾´Î±àÒëĞÅÏ¢ÖÁ¼ÇÂ¼ÎÄ¼ş */
+        /* ä¿å­˜æœ¬æ¬¡ç¼–è¯‘ä¿¡æ¯è‡³è®°å½•æ–‡ä»¶ */
         p_file = fopen(file_path, "w+");
         if (p_file == NULL)
         {
@@ -621,7 +656,7 @@ int main(int argc, char *argv[])
 
         fputs("      Code (inc. data)   RO Data    RW Data    ZI Data      Debug   Object Name\n", p_file);
 
-        for (struct object_info *object_temp = _object_info_head;
+        for (struct object_info *object_temp = object_info_head;
              object_temp != NULL;
              object_temp = object_temp->next)
         {
@@ -637,10 +672,10 @@ int main(int argc, char *argv[])
         log_print(_log_file, "[WARNING] Because LTO is enabled, information for each file cannot be displayed\n \n");
     }
     
-    /* 11. ´òÓ¡×Ü flash ºÍ RAM Õ¼ÓÃÇé¿ö£¬ÒÔ½ø¶ÈÌõÏÔÊ¾ */
-    /* 11.1 Ëã³ö execution region name µÄ×î´ó³¤¶È  */
+    /* 11. æ‰“å°æ€» flash å’Œ RAM å ç”¨æƒ…å†µï¼Œä»¥è¿›åº¦æ¡æ˜¾ç¤º */
+    /* 11.1 ç®—å‡º execution region name çš„æœ€å¤§é•¿åº¦  */
     size_t max_region_name = 0;
-    for (struct load_region *l_region = _load_region_head; 
+    for (struct load_region *l_region = load_region_head; 
          l_region != NULL; 
          l_region = l_region->next)
     {
@@ -655,27 +690,55 @@ int main(int argc, char *argv[])
         }
     }
 
-    /* 11.2 ¿ªÊ¼´òÓ¡ */
+    /* 11.2 åˆ¤æ–­å½“å‰çš„å†…å­˜æ‰“å°æ¨¡å¼ */
+    MEMORY_PRINT_MODE print_mode = MEMORY_PRINT_MODE_0;
+    if (uvprojx_file.is_has_pack == false)
+    {
+    #if defined(ENABLE_REFER_TO_KEIL_DIALOG) && (ENABLE_REFER_TO_KEIL_DIALOG != 0)
+        if (_memory_info_head == NULL) {
+            print_mode = MEMORY_PRINT_MODE_2;
+        } else {
+            print_mode = MEMORY_PRINT_MODE_1;
+        }
+    #else
+        if (_memory_info_head && uvprojx_file.is_custom_scatter == false) {
+            print_mode = MEMORY_PRINT_MODE_1;
+        } else {
+            print_mode = MEMORY_PRINT_MODE_2;
+        }
+    #endif
+    }
+    log_save(_log_file, "[memory print mode]: %d\n", print_mode);
+
+    /* 11.3 å¼€å§‹æ‰“å° */
     bool is_print_null = true;
-    for (struct load_region *l_region = _load_region_head; 
+    for (struct load_region *l_region = load_region_head; 
          l_region != NULL; 
          l_region = l_region->next)
     {
         log_print(_log_file, "%s\n", l_region->name);
-        memory_print_process(_memory_info_head, l_region->exec_region, MEMORY_TYPE_SRAM,    max_region_name, is_has_region, is_print_null);
-        memory_print_process(_memory_info_head, l_region->exec_region, MEMORY_TYPE_FLASH,   max_region_name, is_has_region, is_print_null);
-        memory_print_process(_memory_info_head, l_region->exec_region, MEMORY_TYPE_UNKNOWN, max_region_name, is_has_region, is_print_null);
-
-        for (struct memory_info *memory_temp = _memory_info_head;
-             memory_temp != NULL;
-             memory_temp = memory_temp->next)
+        if (print_mode == MEMORY_PRINT_MODE_1)
         {
-            memory_temp->is_printed = false;
+            memory_mode1_print(l_region->exec_region, MEMORY_TYPE_RAM,     false, max_region_name, is_has_record);
+            memory_mode1_print(l_region->exec_region, MEMORY_TYPE_RAM,     true,  max_region_name, is_has_record);
+            memory_mode1_print(l_region->exec_region, MEMORY_TYPE_FLASH,   false, max_region_name, is_has_record);
+            memory_mode1_print(l_region->exec_region, MEMORY_TYPE_FLASH,   true,  max_region_name, is_has_record);
+            memory_mode1_print(l_region->exec_region, MEMORY_TYPE_UNKNOWN, false, max_region_name, is_has_record);
+        }
+        else if (print_mode == MEMORY_PRINT_MODE_2)
+        {
+            memory_mode2_print(l_region->exec_region, max_region_name, is_has_record);
+        }
+        else 
+        {
+            memory_mode0_print(l_region->exec_region, MEMORY_TYPE_RAM,     max_region_name, is_has_record, is_print_null);
+            memory_mode0_print(l_region->exec_region, MEMORY_TYPE_FLASH,   max_region_name, is_has_record, is_print_null);
+            memory_mode0_print(l_region->exec_region, MEMORY_TYPE_UNKNOWN, max_region_name, is_has_record, is_print_null);
         }
         is_print_null = false;
     }
 
-    /* 12. ´òÓ¡Õ»Ê¹ÓÃÇé¿ö */
+    /* 12. æ‰“å°æ ˆä½¿ç”¨æƒ…å†µ */
     if (uvprojx_file.output_path[0] != '\0')
     {
         res = combine_path(file_path, file_path_size, keil_prj_path, uvprojx_file.output_path);
@@ -696,7 +759,7 @@ int main(int argc, char *argv[])
         stack_print_process(file_path);
     }
 
-    /* 13. ±£´æ±¾´Î region ĞÅÏ¢ÖÁ¼ÇÂ¼ÎÄ¼ş */
+    /* 13. ä¿å­˜æœ¬æ¬¡ region ä¿¡æ¯è‡³è®°å½•æ–‡ä»¶ */
     snprintf(file_path, file_path_size, "%s\\%s-record.txt", _current_dir, APP_NAME);
 
     if (uvprojx_file.is_enable_lto) {
@@ -714,7 +777,7 @@ int main(int argc, char *argv[])
 
     fputs(STR_MEMORY_MAP_OF_THE_IMAGE "\n\n", p_file);
 
-    for (struct load_region *l_region = _load_region_head; 
+    for (struct load_region *l_region = load_region_head; 
          l_region != NULL; 
          l_region = l_region->next)
     {
@@ -744,12 +807,13 @@ __exit:
     if (file_path) {
         free(file_path);
     }
-    object_info_free(&_object_info_head);
-    object_info_free(&_record_object_info_head);
-    load_region_free(&_load_region_head);
-    load_region_free(&_record_load_region_head);
+    object_info_free(&object_info_head);
+    object_info_free(&record_object_info_head);
+    load_region_free(&load_region_head);
+    load_region_free(&record_load_region_head);
 
     file_path_free(&_file_path_list_head);
+    memory_info_free(&_memory_info_head);
     prj_path_list_free(_keil_prj_path_list);
     log_print(_log_file, "=============================================================================================================================\n\n");
     log_save(_log_file, "run time: %.3f s\n", (double)(clock() - run_time) / CLOCKS_PER_SEC);
@@ -759,16 +823,16 @@ __exit:
 
 
 /**
- * @brief  Èë¿Ú²ÎÊı´¦Àí
+ * @brief  å…¥å£å‚æ•°å¤„ç†
  * @note   
- * @param  param_qty:   ²ÎÊıÊıÁ¿
- * @param  param[]:     ²ÎÊıÁĞ±í
- * @param  prj_name:    [out] keil ¹¤³ÌÃû
- * @param  name_size:   prj_name µÄ×î´ó size
- * @param  prj_path:    [out] keil ¹¤³Ì¾ø¶ÔÂ·¾¶
- * @param  path_size:   prj_path µÄ×î´ó size
- * @param  err_param:   [out] ·¢Éú´íÎóµÄ²ÎÊıÎ»
- * @retval 0: Õı³£ | -x: ´íÎó
+ * @param  param_qty:   å‚æ•°æ•°é‡
+ * @param  param[]:     å‚æ•°åˆ—è¡¨
+ * @param  prj_name:    [out] keil å·¥ç¨‹å
+ * @param  name_size:   prj_name çš„æœ€å¤§ size
+ * @param  prj_path:    [out] keil å·¥ç¨‹ç»å¯¹è·¯å¾„
+ * @param  path_size:   prj_path çš„æœ€å¤§ size
+ * @param  err_param:   [out] å‘ç”Ÿé”™è¯¯çš„å‚æ•°ä½
+ * @retval 0: æ­£å¸¸ | -x: é”™è¯¯
  */
 int parameter_process(int    param_qty,
                       char   *param[], 
@@ -797,6 +861,15 @@ int parameter_process(int    param_qty,
             else if (strcasecmp(param[i], _command_list[seq++].cmd) == 0) {
                 _is_display_path = false;
             }
+            else if (strcasecmp(param[i], _command_list[seq++].cmd) == 0) {
+                _progress_style = PROGRESS_STYLE_0;
+            }
+            else if (strcasecmp(param[i], _command_list[seq++].cmd) == 0) {
+                _progress_style = PROGRESS_STYLE_1;
+            }
+            else if (strcasecmp(param[i], _command_list[seq++].cmd) == 0) {
+                _progress_style = PROGRESS_STYLE_2;
+            }
             else if (strcasecmp(param[i], "-H")    == 0
             ||       strcasecmp(param[i], "-HELP") == 0) {
                 return -4;
@@ -812,7 +885,7 @@ int parameter_process(int    param_qty,
             char *last_slash = NULL;
             size_t param_len = strnlen_s(param[i], MAX_PATH);
 
-            /* ¾ø¶ÔÂ·¾¶ */
+            /* ç»å¯¹è·¯å¾„ */
             if (param[i][1] == ':')
             {
                 DWORD attributes = GetFileAttributes(param[i]);
@@ -820,7 +893,7 @@ int parameter_process(int    param_qty,
                     return -1;
                 }
 
-                /* Ä¿Â¼ */
+                /* ç›®å½• */
                 if (attributes & FILE_ATTRIBUTE_DIRECTORY)
                 {
                     strncpy_s(_current_dir, sizeof(_current_dir), param[i], param_len);
@@ -829,10 +902,10 @@ int parameter_process(int    param_qty,
                         _current_dir[param_len - 1] = '\0';
                     }
                 }
-                /* ÎÄ¼ş */
+                /* æ–‡ä»¶ */
                 else
                 {
-                    /* ²»ÊÇ keil ¹¤³ÌÔò±¨´íÍË³ö */
+                    /* ä¸æ˜¯ keil å·¥ç¨‹åˆ™æŠ¥é”™é€€å‡º */
                     if (is_keil_project(param[i]) == false) {
                         return -2;
                     }
@@ -846,19 +919,19 @@ int parameter_process(int    param_qty,
                     }
                 }
             }
-            /* ²»Ö§³ÖÏà¶ÔÂ·¾¶ */
+            /* ä¸æ”¯æŒç›¸å¯¹è·¯å¾„ */
             else if (param[i][0] == '\\' || param[i][0] == '.') {
                 return -2;
             }
-            /* ÎÄ¼şÃû */
+            /* æ–‡ä»¶å */
             else
             {
                 snprintf(prj_path, path_size, "%s\\%s", _current_dir, param[i]);
 
-                /* ·Ç keil ¹¤³ÌÔò¼ì²éÊÇ·ñÓĞÀ©Õ¹Ãû */
+                /* é keil å·¥ç¨‹åˆ™æ£€æŸ¥æ˜¯å¦æœ‰æ‰©å±•å */
                 if (is_keil_project(param[i]) == false)
                 {
-                    /* ÓĞÀ©Õ¹Ãû±¨´íÍË³ö£¬ÎŞÀ©Õ¹ÃûÔò´ÓËÑË÷µ½µÄÁĞ±íÀï½øĞĞÆ¥Åä */
+                    /* æœ‰æ‰©å±•åæŠ¥é”™é€€å‡ºï¼Œæ— æ‰©å±•ååˆ™ä»æœç´¢åˆ°çš„åˆ—è¡¨é‡Œè¿›è¡ŒåŒ¹é… */
                     char *dot = strrchr(param[i], '.');
                     if (dot) {
                         return -2;
@@ -889,12 +962,12 @@ int parameter_process(int    param_qty,
 
 
 /**
- * @brief  uvoptx ÎÄ¼ş´¦Àí
- * @note   »ñÈ¡Ö¸¶¨µÄ target name
- * @param  file_path:   uvoptx ÎÄ¼şÂ·¾¶
+ * @brief  uvoptx æ–‡ä»¶å¤„ç†
+ * @note   è·å–æŒ‡å®šçš„ target name
+ * @param  file_path:   uvoptx æ–‡ä»¶è·¯å¾„
  * @param  target_name: [out] keil target name
- * @param  max_size:    target_name µÄ×î´ó size
- * @retval true: ³É¹¦ | false: Ê§°Ü
+ * @param  max_size:    target_name çš„æœ€å¤§ size
+ * @retval true: æˆåŠŸ | false: å¤±è´¥
  */
 bool uvoptx_file_process(const char *file_path, 
                          char *target_name,
@@ -953,40 +1026,31 @@ bool uvoptx_file_process(const char *file_path,
 
 
 /**
- * @brief  uvprojx ÎÄ¼ş´¦Àí
- * @note   »ñÈ¡ uvprojx ÎÄ¼şÖĞµÄĞÅÏ¢
- * @param  memory_head:         memory Á´±íÍ·
- * @param  file_path:           uvprojx ÎÄ¼şµÄ¾ø¶ÔÂ·¾¶
- * @param  target_name:         Ö¸¶¨µÄ target name
- * @param  out_info:            [out] ½âÎö³öµÄ uvprojx ĞÅÏ¢
- * @param  is_get_target_name:  ÊÇ·ñ»ñÈ¡ target name
- * @retval 0: ³É¹¦ | -x: Ê§°Ü
+ * @brief  uvprojx æ–‡ä»¶å¤„ç†
+ * @note   è·å– uvprojx æ–‡ä»¶ä¸­çš„ä¿¡æ¯
+ * @param  file_path:           uvprojx æ–‡ä»¶çš„ç»å¯¹è·¯å¾„
+ * @param  target_name:         æŒ‡å®šçš„ target name
+ * @param  out_info:            [out] è§£æå‡ºçš„ uvprojx ä¿¡æ¯
+ * @param  is_get_target_name:  æ˜¯å¦è·å– target name
+ * @retval 0: æˆåŠŸ | -x: å¤±è´¥
  */
-int uvprojx_file_process(struct memory_info **memory_head,
-                         const char *file_path, 
+int uvprojx_file_process(const char *file_path, 
                          const char *target_name,
                          struct uvprojx_info *out_info,
                          bool is_get_target_name)
 {
-    /* ´ò¿ªÍ¬ÃûµÄ .uvprojx »ò .uvproj ÎÄ¼ş */
+    /* æ‰“å¼€åŒåçš„ .uvprojx æˆ– .uvproj æ–‡ä»¶ */
     FILE *p_file = fopen(file_path, "r");
     if (p_file == NULL) {
         return -1;
     }
 
-    uint8_t state = 0;
     char *str     = NULL;
     char *lt      = NULL;
-    char *str_p1  = NULL;
-    char *str_p2  = NULL;
-    char *end_ptr = NULL;
-    char name[MAX_PRJ_NAME_SIZE] = {0};
-    uint32_t base_addr   = 0;
-    uint32_t size        = 0;
-    size_t memory_id     = 2;   /* 1 Ô¤Áô¸ø unknown µÄ memory */
-    MEMORY_TYPE mem_type = MEMORY_TYPE_NONE;
+    uint8_t state = 0;
+    long mem_pos  = 0;
 
-    /* ÖğĞĞ¶ÁÈ¡ */
+    /* é€è¡Œè¯»å– */
     while (fgets(_line_text, sizeof(_line_text), p_file))     
     { 
         switch (state)
@@ -998,7 +1062,7 @@ int uvprojx_file_process(struct memory_info **memory_head,
                     if (is_get_target_name)
                     {
                         str += strlen(LABEL_TARGET_NAME);
-                        lt = strrchr(_line_text, '<');
+                        lt   = strrchr(_line_text, '<');
                         if (lt) 
                         {
                             *lt = '\0';
@@ -1013,7 +1077,7 @@ int uvprojx_file_process(struct memory_info **memory_head,
                 if (str)
                 {
                     str += strlen(LABEL_DEVICE);
-                    lt = strrchr(_line_text, '<');
+                    lt   = strrchr(_line_text, '<');
                     if (lt) 
                     {
                         *lt = '\0';
@@ -1023,9 +1087,46 @@ int uvprojx_file_process(struct memory_info **memory_head,
                 }
                 break;
             case 2:
-                bool is_get_first = false;
+                str = strstr(_line_text, LABEL_VENDOR);
+                if (str)
+                {
+                    str += strlen(LABEL_VENDOR);
+                    if (strncasecmp(str, "ARM", 3) == 0) 
+                    {
+                        out_info->is_has_pack = false;
+                        state = 4;
+                    } 
+                    else 
+                    {
+                        out_info->is_has_pack = true;
+                        state = 3;
+                    }
 
-                /* »ñÈ¡ RAM ºÍ ROM  */
+                    // lt   = strrchr(_line_text, '<');
+                    // if (lt) 
+                    // {
+                    //     *lt = '\0';
+                    //     if (strncasecmp(str, "ARM", 3) == 0) {
+                    //         out_info->is_has_pack = false;
+                    //     } else {
+                    //         out_info->is_has_pack = true;
+                    //     }
+                    //     state = 3;
+                    // }
+                }
+                break;
+            case 3:
+                bool is_get_first    = false;
+                char *str_p1         = NULL;
+                char *str_p2         = NULL;
+                char *end_ptr        = NULL;
+                char name[MAX_PRJ_NAME_SIZE] = {0};
+                uint32_t base_addr   = 0;
+                uint32_t size        = 0;
+                size_t mem_id        = UNKNOWN_MEMORY_ID;
+                MEMORY_TYPE mem_type = MEMORY_TYPE_NONE;
+
+                /* è·å– RAM å’Œ ROM  */
                 str = strstr(_line_text, LABEL_CPU);
                 if (str)
                 {
@@ -1054,14 +1155,14 @@ int uvprojx_file_process(struct memory_info **memory_head,
 
                         mem_type = MEMORY_TYPE_UNKNOWN;
                         if (strstr(name, "RAM")) {
-                            mem_type = MEMORY_TYPE_SRAM;
+                            mem_type = MEMORY_TYPE_RAM;
                         } 
                         else if (strstr(name, "ROM")) {
                             mem_type = MEMORY_TYPE_FLASH;
                         }
                         else 
                         {
-                            state = 3;
+                            state = 4;
                             break;
                         }
 
@@ -1097,15 +1198,17 @@ int uvprojx_file_process(struct memory_info **memory_head,
                         }
 
                         if (mem_type == MEMORY_TYPE_UNKNOWN) {
-                            memory_info_add(memory_head, name, 1, base_addr, size, mem_type);
-                        } else {
-                            memory_info_add(memory_head, name, memory_id, base_addr, size, mem_type);
+                            memory_info_add(&_memory_info_head, name, 1, base_addr, size, mem_type, true, true);
+                        } 
+                        else 
+                        {
+                            mem_id++;
+                            memory_info_add(&_memory_info_head, name, mem_id, base_addr, size, mem_type, false, true);
                         }
-                        memory_id++;
                     }
                 }
                 break;
-            case 3:
+            case 4:
                 str = strstr(_line_text, LABEL_OUTPUT_DIRECTORY);
                 if (str)
                 {
@@ -1115,11 +1218,11 @@ int uvprojx_file_process(struct memory_info **memory_head,
                     {
                         *lt = '\0';
                         strncpy_s(out_info->output_path, sizeof(out_info->output_path), str, strnlen_s(str, sizeof(out_info->output_path)));
-                        state = 4;
+                        state = 5;
                     }
                 }
                 break;
-            case 4:
+            case 5:
                 str = strstr(_line_text, LABEL_OUTPUT_NAME);
                 if (str)
                 {
@@ -1129,41 +1232,54 @@ int uvprojx_file_process(struct memory_info **memory_head,
                     {
                         *lt = '\0';
                         strncpy_s(out_info->output_name, sizeof(out_info->output_name), str, strnlen_s(str, sizeof(out_info->output_name)));
-                        state = 5;
-                    }
-                }
-                break;
-            case 5:
-                str = strstr(_line_text, LABEL_LISTING_PATH);
-                if (str)
-                {
-                    str += strlen(LABEL_LISTING_PATH);
-                    lt = strrchr(_line_text, '<');
-                    if (lt) 
-                    {
-                        *lt = '\0';
-                        strncpy_s(out_info->listing_path, sizeof(out_info->listing_path), str, strnlen_s(str, sizeof(out_info->listing_path)));
                         state = 6;
                     }
                 }
                 break;
             case 6:
-                /* ¼ì²éÊÇ·ñÉú³ÉÁË map ÎÄ¼ş */
+                str = strstr(_line_text, LABEL_LISTING_PATH);
+                if (str)
+                {
+                    str += strlen(LABEL_LISTING_PATH);
+                    lt   = strrchr(_line_text, '<');
+                    if (lt) 
+                    {
+                        *lt = '\0';
+                        strncpy_s(out_info->listing_path, sizeof(out_info->listing_path), str, strnlen_s(str, sizeof(out_info->listing_path)));
+                        state = 7;
+                    }
+                }
+                break;
+            case 7:
+                /* æ£€æŸ¥æ˜¯å¦ç”Ÿæˆäº† map æ–‡ä»¶ */
                 str = strstr(_line_text, LABEL_IS_CREATE_MAP);
                 if (str)
                 {
                     str += strlen(LABEL_IS_CREATE_MAP);
                     if (*str == '0') {
                         return -3;
-                    } else {
-                        state = 7;
+                    } 
+                    else 
+                    {
+                        /* æ²¡æœ‰ pack å°±è¯»å–è‡ªå®šä¹‰çš„ memory area */
+                        if (out_info->is_has_pack == false || _memory_info_head == NULL) {
+                            state = 8;
+                        } else {
+                            state = 9;
+                        }
+                        mem_pos = ftell(p_file);
                     }
                 }
                 break;
-            case 7:
-                /* ¼ì²éÊÇ·ñ¿ªÆôÁË LTO */
-                str = strstr(_line_text, LABEL_AC6_LTO);
-                if (str)
+            case 8:
+                /* è¯»å–è‡ªå®šä¹‰ memory area */
+                if (memory_area_process(_line_text, false) == false) {
+                    state = 9;
+                }
+                break;
+            case 9:
+                /* æ£€æŸ¥æ˜¯å¦å¼€å¯äº† LTO */
+                if (({str = strstr(_line_text, LABEL_AC6_LTO); str;}))
                 {
                     str += strlen(LABEL_AC6_LTO);
                     if (*str == '0') {
@@ -1171,21 +1287,51 @@ int uvprojx_file_process(struct memory_info **memory_head,
                     } else {
                         out_info->is_enable_lto = true;
                     }
-                    state = 8;
+                    state = 10;
                 }
-                else if (strstr(_line_text, LABEL_END_CADS)) {
-                    state = 8;
+                else if (({str = strstr(_line_text, LABEL_END_CADS); str;}))
+                {
+                    out_info->is_enable_lto = false;
+                    state = 10;
                 }
                 break;
-            case 8:
-                /* »ñÈ¡ÒÑ¼ÓÈë±àÒëµÄÎÄ¼şÂ·¾¶£¬²¢¼ÇÂ¼ÖØ¸´µÄÎÄ¼şÃû */
+            case 10:
+                /* è¯»å–æ˜¯å¦ä½¿ç”¨äº† keil ç”Ÿæˆçš„ scatter file */
+                str = strstr(_line_text, LABEL_IS_KEIL_SCATTER);
+                if (str)
+                {
+                    str += strlen(LABEL_IS_KEIL_SCATTER);
+                    if (*str == '0') 
+                    {
+                        out_info->is_custom_scatter = true;
+                        fseek(p_file, mem_pos, SEEK_SET);
+                        state = 11;
+                    }
+                    else 
+                    {
+                        out_info->is_custom_scatter = false;
+                        state = 12;
+                    }
+                }
+                else if (strstr(_line_text, LABEL_END_LDADS)) {
+                    state = 12;
+                }
+                break;
+            case 11:
+                /* å°†æ–°çš„ memory area åŠ å…¥ memory info ä¸­ */
+                if (memory_area_process(_line_text, true) == false) {
+                    state = 12;
+                }
+                break;
+            case 12:
+                /* è·å–å·²åŠ å…¥ç¼–è¯‘çš„æ–‡ä»¶è·¯å¾„ï¼Œå¹¶è®°å½•é‡å¤çš„æ–‡ä»¶å */
                 if (file_path_process(_line_text, &out_info->is_has_user_lib) == false) {
-                    state = 9;
+                    state = 13;
                 }
                 break;
             default: break;
         }
-        if (state == 9) {
+        if (state == 13) {
             break;
         }
     }
@@ -1196,13 +1342,12 @@ int uvprojx_file_process(struct memory_info **memory_head,
 
 
 /**
- * @brief  ¶ÁÈ¡ build_log ÎÄ¼ş£¬»ñÈ¡ÎÄ¼şµÄ¸ÄÃûĞÅÏ¢
+ * @brief  è¯»å– build_log æ–‡ä»¶ï¼Œè·å–æ–‡ä»¶çš„æ”¹åä¿¡æ¯
  * @note   
- * @param  file_path: build_log ÎÄ¼şËùÔÚµÄÂ·¾¶
- * @param  path_head: ÎÄ¼şÂ·¾¶Á´±íÍ·
+ * @param  file_path: build_log æ–‡ä»¶æ‰€åœ¨çš„è·¯å¾„
  * @retval 
  */
-void build_log_file_process(const char *file_path, struct file_path_list **path_head)
+void build_log_file_process(const char *file_path)
 {
     FILE *p_file = fopen(file_path, "r");
     if (p_file == NULL) {
@@ -1223,7 +1368,7 @@ void build_log_file_process(const char *file_path, struct file_path_list **path_
             char *str_p2 = strstr(str_p1, "'");
             *str_p2 = '\0';
 
-            for (struct file_path_list *path_temp = *path_head;
+            for (struct file_path_list *path_temp = _file_path_list_head;
                  path_temp != NULL;
                  path_temp = path_temp->next)
             {
@@ -1253,16 +1398,15 @@ void build_log_file_process(const char *file_path, struct file_path_list **path_
 
 
 /**
- * @brief  ÎÄ¼şÃûÖØÃûĞŞ¸Ä´¦Àí
+ * @brief  æ–‡ä»¶åé‡åä¿®æ”¹å¤„ç†
  * @note   
- * @param  path_head: ÎÄ¼şÂ·¾¶Á´±íÍ·
  * @retval None
  */
-void file_rename_process(struct file_path_list **path_head)
+void file_rename_process(void)
 {
     char str[MAX_PRJ_NAME_SIZE] = {0};
 
-    for (struct file_path_list *path_temp1 = *path_head;
+    for (struct file_path_list *path_temp1 = _file_path_list_head;
          path_temp1 != NULL;
          path_temp1 = path_temp1->next)
     {
@@ -1296,11 +1440,132 @@ void file_rename_process(struct file_path_list **path_head)
 
 
 /**
- * @brief  ÎÄ¼şÂ·¾¶´¦Àí
- * @note   »ñÈ¡ uvprojx ÎÄ¼şÖĞ±»Ìí¼Ó½ø keil ¹¤³ÌµÄÎÄ¼ş¼°ÆäÏà¶ÔÂ·¾¶
- * @param  str:             ¶ÁÈ¡µ½µÄ uvprojx ÎÄ¼şµÄÃ¿Ò»ĞĞÎÄ±¾
- * @param  is_has_user_lib: [out] ÊÇ·ñÓĞ user lib
- * @retval true: ¼ÌĞø | false: ½áÊø
+ * @brief  è‡ªå®šä¹‰ memory area è¯»å–
+ * @note   
+ * @param  str:     è¯»å–åˆ°çš„ uvprojx æ–‡ä»¶çš„æ¯ä¸€è¡Œæ–‡æœ¬
+ * @param  is_new:  æ˜¯å¦ä¸ºæ–°å¢çš„ memory area
+ * @retval true: ç»§ç»­ | false: ç»“æŸ
+ */
+bool memory_area_process(const char *str, bool is_new)
+{
+    static uint8_t id    = 0;
+    static uint8_t state = 0;
+    static uint32_t addr = 0;
+    static uint32_t size = 0;
+    static size_t mem_id = UNKNOWN_MEMORY_ID;
+    static MEMORY_TYPE mem_type = MEMORY_TYPE_NONE;
+
+    if (str == NULL || strstr(str, LABEL_END_ONCHIP_MEMORY))
+    {
+        id       = 0;
+        state    = 0;
+        addr     = 0;
+        size     = 0;
+        mem_id   = UNKNOWN_MEMORY_ID;
+        mem_type = MEMORY_TYPE_NONE;
+        return false;
+    }
+
+    char *str_p1  = NULL;
+    char *str_p2  = NULL;
+    char *end_ptr = NULL;
+
+    switch (state)
+    {
+        case 0:
+            if (strstr(str, LABEL_ONCHIP_MEMORY)) {
+                state = 1;
+            }
+            break;
+        case 1:
+            if (strstr(str, LABEL_MEMORY_AREA)) {
+                state = 2;
+            }
+            break;
+        case 2:
+            str_p1 = strstr(str, LABEL_MEMORY_TYPE);
+            if (str_p1)
+            {
+                str_p1 += strlen(LABEL_MEMORY_TYPE);
+                str_p2  = strrchr(str_p1, '<');
+                *str_p2 = '\0';
+
+                if (strtoul(str_p1, &end_ptr, 16) == 0) {
+                    mem_type = MEMORY_TYPE_RAM;
+                } else {
+                    mem_type = MEMORY_TYPE_FLASH;
+                }
+                id++;
+                state = 3;
+            }
+            break;
+        case 3:
+            str_p1 = strstr(str, LABEL_MEMORY_ADDRESS);
+            if (str_p1)
+            {
+                str_p1 += strlen(LABEL_MEMORY_ADDRESS);
+                str_p2  = strrchr(str_p1, '<');
+                *str_p2 = '\0';
+                addr    = strtoul(str_p1, &end_ptr, 16);
+                state   = 4;
+            }
+            break;
+        case 4:
+            str_p1 = strstr(str, LABEL_MEMORY_SIZE);
+            if (str_p1)
+            {
+                str_p1 += strlen(LABEL_MEMORY_SIZE);
+                str_p2  = strrchr(str_p1, '<');
+                *str_p2 = '\0';
+                size    = strtoul(str_p1, &end_ptr, 16);
+
+                if (size == 0) {
+                    state = 2;
+                } else {
+                    state = 5;
+                }
+
+                if (is_new == false) {
+                    break;
+                }
+
+                for (struct memory_info *memory = _memory_info_head;
+                     memory != NULL;
+                     memory = memory->next)
+                {
+                    if (addr >= memory->base_addr
+                    &&  addr <= (memory->base_addr + memory->size))
+                    {
+                        state = 2;
+                        break;
+                    }
+                }
+            }
+            break;
+        case 5:
+            if (strstr(str, LABLE_END_MEMORY_AREA))
+            {
+                bool is_offchip = true;
+                if (id == 4 || id == 5 || id == 9 || id == 10) {
+                    is_offchip = false;
+                }
+                mem_id++;
+                memory_info_add(&_memory_info_head, NULL, mem_id, addr, size, mem_type, is_offchip, false);
+                state = 2;
+            }
+            break;
+        default: break;
+    }
+    return true;
+}
+
+
+/**
+ * @brief  æ–‡ä»¶è·¯å¾„å¤„ç†
+ * @note   è·å– uvprojx æ–‡ä»¶ä¸­è¢«æ·»åŠ è¿› keil å·¥ç¨‹çš„æ–‡ä»¶åŠå…¶ç›¸å¯¹è·¯å¾„
+ * @param  str:             è¯»å–åˆ°çš„ uvprojx æ–‡ä»¶çš„æ¯ä¸€è¡Œæ–‡æœ¬
+ * @param  is_has_user_lib: [out] æ˜¯å¦æœ‰ user lib
+ * @retval true: ç»§ç»­ | false: ç»“æŸ
  */
 bool file_path_process(const char *str, bool *is_has_user_lib)
 {
@@ -1405,31 +1670,33 @@ bool file_path_process(const char *str, bool *is_has_user_lib)
 
 
 /**
- * @brief  map ÎÄ¼ş´¦Àí
- * @note   »ñÈ¡ map ÎÄ¼şÖĞÃ¿¸ö±àÒëÎÄ¼şµÄĞÅÏ¢
- * @param  file_path:       map ÎÄ¼şµÄ¾ø¶ÔÂ·¾¶
- * @param  region_head:     region Á´±íÍ·
- * @param  object_head:     object ÎÄ¼şÁ´±íÍ·
- * @param  is_has_user_lib: ÊÇ·ñ»ñÈ¡ user lib ĞÅÏ¢
- * @retval 0: Õı³£ | -x: ´íÎó
+ * @brief  map æ–‡ä»¶å¤„ç†
+ * @note   è·å– map æ–‡ä»¶ä¸­æ¯ä¸ªç¼–è¯‘æ–‡ä»¶çš„ä¿¡æ¯
+ * @param  file_path:       map æ–‡ä»¶çš„ç»å¯¹è·¯å¾„
+ * @param  region_head:     region é“¾è¡¨å¤´
+ * @param  object_head:     object æ–‡ä»¶é“¾è¡¨å¤´
+ * @param  is_has_user_lib: æ˜¯å¦è·å– user lib ä¿¡æ¯
+ * @param  is_match_memory: æ˜¯å¦è¦åŒ¹é…å­˜å‚¨å™¨ä¿¡æ¯
+ * @retval 0: æ­£å¸¸ | -x: é”™è¯¯
  */
 int map_file_process(const char *file_path, 
                      struct load_region **region_head,
                      struct object_info **object_head,
-                     bool is_get_user_lib)
+                     bool is_get_user_lib,
+                     bool is_match_memory)
 {
     FILE *p_file = fopen(file_path, "r");
     if (p_file == NULL) {
         return -1;
     }
 
-    /* ¶ÁÈ¡ map ÎÄ¼ş */
+    /* è¯»å– map æ–‡ä»¶ */
     fseek(p_file, 0, SEEK_END);
     long pos_head = ftell(p_file);
     long pos_end  = pos_head;
     long memory_map_pos = 0;
 
-    /* ´ÓÎÄ¼şÄ©Î²¿ªÊ¼ÄæĞò¶ÁÈ¡ */
+    /* ä»æ–‡ä»¶æœ«å°¾å¼€å§‹é€†åºè¯»å– */
     while (pos_head)
     {
         fseek(p_file, pos_head, SEEK_SET);
@@ -1441,7 +1708,7 @@ int map_file_process(const char *file_path,
 
             if (strstr(_line_text, STR_MEMORY_MAP_OF_THE_IMAGE))
             {
-                /* ¼ÇÂ¼Î»ÖÃ²¢ÍË³öÑ­»· */
+                /* è®°å½•ä½ç½®å¹¶é€€å‡ºå¾ªç¯ */
                 memory_map_pos = ftell(p_file);
                 break;
             }
@@ -1455,27 +1722,29 @@ int map_file_process(const char *file_path,
         return -2;
     }
 
-    /* »ñÈ¡ map ÎÄ¼şÖĞµÄ load region ºÍ execution region ĞÅÏ¢ */
-    region_info_process(p_file, memory_map_pos, region_head);
+    /* è·å– map æ–‡ä»¶ä¸­çš„ load region å’Œ execution region ä¿¡æ¯ */
+    region_info_process(p_file, memory_map_pos, region_head, is_match_memory);
 
-    /* »ñÈ¡Ã¿¸ö .o ÎÄ¼şµÄ flash ºÍ RAM Õ¼ÓÃÇé¿ö */
+    /* è·å–æ¯ä¸ª .o æ–‡ä»¶çš„ flash å’Œ RAM å ç”¨æƒ…å†µ */
     return object_info_process(object_head, p_file, NULL, is_get_user_lib, 0);
 }
 
 
 /**
- * @brief  »ñÈ¡ load region ºÍ execution region ĞÅÏ¢
+ * @brief  è·å– load region å’Œ execution region ä¿¡æ¯
  * @note   
- * @param  p_file:          ÎÄ¼ş¶ÔÏó
- * @param  read_start_pos:  ¿ªÊ¼¶ÁÈ¡µÄÎ»ÖÃ
- * @param  region_head:     region Á´±íÍ·
- * @retval 0: Õı³£ | -5: »ñÈ¡Ê§°Ü
+ * @param  p_file:          æ–‡ä»¶å¯¹è±¡
+ * @param  read_start_pos:  å¼€å§‹è¯»å–çš„ä½ç½®
+ * @param  region_head:     region é“¾è¡¨å¤´
+ * @param  is_match_memory: æ˜¯å¦è¦å°† region ä¸ memory ç»‘å®š
+ * @retval 0: æ­£å¸¸ | -5: è·å–å¤±è´¥
  */
 int region_info_process(FILE *p_file, 
                         long read_start_pos, 
-                        struct load_region **region_head)
+                        struct load_region **region_head,
+                        bool is_match_memory)
 {
-    /* ÏÈ´Ó¼ÇÂ¼µÄÎ»ÖÃ¿ªÊ¼ÕıĞò¶ÁÈ¡ */
+    /* å…ˆä»è®°å½•çš„ä½ç½®å¼€å§‹æ­£åºè¯»å– */
     fseek(p_file, read_start_pos, SEEK_SET);
 
     bool is_has_load_region = false;
@@ -1489,11 +1758,11 @@ int region_info_process(FILE *p_file,
             return 0;
         }
 
+        bool is_offchip = false;
         char *str_p1  = NULL;
         char *str_p2  = NULL;
         char *end_ptr = NULL;
-        char name[MAX_PRJ_NAME_SIZE]     = {0};
-        char str_temp[MAX_PRJ_NAME_SIZE] = {0};
+        char name[MAX_PRJ_NAME_SIZE] = {0};
         uint32_t base_addr = 0;
         uint32_t size      = 0;
         uint32_t used_size = 0;
@@ -1554,26 +1823,33 @@ int region_info_process(FILE *p_file,
                 *str_p2   = '\0';
                 size      = strtoul(str_p1, &end_ptr, 16);
 
-                memory_id   = 1;    /* ID 1 ±íÊ¾ unknown */
+                is_offchip  = false;
+                memory_id   = UNKNOWN_MEMORY_ID;
                 memory_type = MEMORY_TYPE_UNKNOWN;
-                for (struct memory_info *memory_temp = _memory_info_head;
-                     memory_temp != NULL;
-                     memory_temp = memory_temp->next)
+
+                if (is_match_memory)
                 {
-                    if (base_addr >= memory_temp->base_addr
-                    &&  base_addr <= (memory_temp->base_addr + memory_temp->size))
+                    /* å°† execution region ä¸ å¯¹åº”çš„ memory ç»‘å®š  */
+                    for (struct memory_info *memory_temp = _memory_info_head;
+                         memory_temp != NULL;
+                         memory_temp = memory_temp->next)
                     {
-                        memory_id   = memory_temp->id;
-                        memory_type = memory_temp->type;
-                        break;
+                        if (base_addr >= memory_temp->base_addr
+                        &&  base_addr <= (memory_temp->base_addr + memory_temp->size))
+                        {
+                            is_offchip  = memory_temp->is_offchip;
+                            memory_id   = memory_temp->id;
+                            memory_type = memory_temp->type;
+                            break;
+                        }
                     }
                 }
 
                 region_zi_process(NULL, NULL, 0);
-                e_region = load_region_add_exec_region(&l_region, name, memory_id, base_addr, size, used_size, memory_type);
+                e_region = load_region_add_exec_region(&l_region, name, memory_id, base_addr, size, used_size, memory_type, is_offchip);
             }
-            else if (e_region
-            &&       e_region->type != MEMORY_TYPE_FLASH
+            else if (e_region 
+            &&       e_region->memory_type != MEMORY_TYPE_FLASH
             &&       strstr(_line_text, "0x"))
             {
                 region_zi_process(&e_region, _line_text, size_pos);
@@ -1586,12 +1862,12 @@ int region_info_process(FILE *p_file,
 
 
 /**
- * @brief  »ñÈ¡ region ÖĞµÄ zero init ÇøÓò¿é·Ö²¼
- * @note   e_region ²ÎÊı´«ÖµÎª NULL Ê±½«¸´Î»±¾º¯Êı¡£
- *         ÇĞ»»ÖÁĞÂµÄ execution region Ç°£¬±ØĞë¸´Î»±¾º¯Êı
+ * @brief  è·å– region ä¸­çš„ zero init åŒºåŸŸå—åˆ†å¸ƒ
+ * @note   e_region å‚æ•°ä¼ å€¼ä¸º NULL æ—¶å°†å¤ä½æœ¬å‡½æ•°ã€‚
+ *         åˆ‡æ¢è‡³æ–°çš„ execution region å‰ï¼Œå¿…é¡»å¤ä½æœ¬å‡½æ•°
  * @param  e_region:    execution region
- * @param  text:        Ò»ĞĞÎÄ±¾ÄÚÈİ
- * @param  size_pos:    Size À¸Ä¿ËùÔÚµÄÎ»ÖÃ£¬´Ó 1 ËãÆğ
+ * @param  text:        ä¸€è¡Œæ–‡æœ¬å†…å®¹
+ * @param  size_pos:    Size æ ç›®æ‰€åœ¨çš„ä½ç½®ï¼Œä» 1 ç®—èµ·
  * @retval None
  */
 void region_zi_process(struct exec_region **e_region,
@@ -1652,7 +1928,6 @@ void region_zi_process(struct exec_region **e_region,
         }
 
         *zi_block = (struct region_block *)malloc(sizeof(struct region_block));
-
         (*zi_block)->start_addr = addr;
         (*zi_block)->size       = size;
         (*zi_block)->next       = NULL;
@@ -1666,14 +1941,14 @@ void region_zi_process(struct exec_region **e_region,
 
 
 /**
- * @brief  »ñÈ¡ object info
+ * @brief  è·å– object info
  * @note   
- * @param  object_head:     object ÎÄ¼şÁ´±íÍ·
- * @param  p_file:          ÎÄ¼ş¶ÔÏó
- * @param  end_pos:         [out] ×îºó¶ÁÈ¡µ½µÄÎÄ¼şÎ»ÖÃ
- * @param  is_get_user_lib: ÊÇ·ñ»ñÈ¡ÓÃ»§ lib ĞÅÏ¢
- * @param  parse_mode:      ½âÎöÄ£Ê½ 0: °´ map ÎÄ¼ş½âÎö | 1: °´ record ÎÄ¼ş½âÎö
- * @retval 0: Õı³£ | -x: ´íÎó
+ * @param  object_head:     object æ–‡ä»¶é“¾è¡¨å¤´
+ * @param  p_file:          æ–‡ä»¶å¯¹è±¡
+ * @param  end_pos:         [out] æœ€åè¯»å–åˆ°çš„æ–‡ä»¶ä½ç½®
+ * @param  is_get_user_lib: æ˜¯å¦è·å–ç”¨æˆ· lib ä¿¡æ¯
+ * @param  parse_mode:      è§£ææ¨¡å¼ 0: æŒ‰ map æ–‡ä»¶è§£æ | 1: æŒ‰ record æ–‡ä»¶è§£æ
+ * @retval 0: æ­£å¸¸ | -x: é”™è¯¯
  */
 int object_info_process(struct object_info **object_head,
                         FILE *p_file,
@@ -1690,7 +1965,7 @@ int object_info_process(struct object_info **object_head,
     char *new_line = NULL;
     size_t index   = 0;
 
-    /* »ñÈ¡ÓÃ»§ÎÄ¼şµÄ object info */
+    /* è·å–ç”¨æˆ·æ–‡ä»¶çš„ object info */
     while (fgets(_line_text, sizeof(_line_text), p_file))
     {
         switch (state)
@@ -1698,18 +1973,18 @@ int object_info_process(struct object_info **object_head,
             case 0:
                 if (parse_mode == 0)
                 {
-                    /* Object Name È«²¿Ìí¼Ó */
+                    /* Object Name å…¨éƒ¨æ·»åŠ  */
                     if (strstr(_line_text, ".o")) 
                     {
                         index = 0;
-                        /* ÇĞ¸îºó×ª»» */
+                        /* åˆ‡å‰²åè½¬æ¢ */
                         token = strtok(_line_text, " ");
                         while (token != NULL)
                         {
                             if (index < OBJECT_INFO_STR_QTY - 1) {
                                 value[index] = strtoul(token, &end_ptr, 10);
                             } 
-                            else    /* ×îºóÒ»¸öÊÇÃû³Æ */
+                            else    /* æœ€åä¸€ä¸ªæ˜¯åç§° */
                             {
                                 new_line = strrchr(token, '\n');
                                 if (new_line) {
@@ -1723,7 +1998,7 @@ int object_info_process(struct object_info **object_head,
                             token = strtok(NULL, " ");
                         }
 
-                        /* ±£´æ */
+                        /* ä¿å­˜ */
                         if (index == OBJECT_INFO_STR_QTY) {
                             object_info_add(object_head, name, value[0], value[2], value[3], value[4]);
                         } 
@@ -1750,18 +2025,18 @@ int object_info_process(struct object_info **object_head,
                 }
                 break;
             case 1:
-                /* Library Member Name ½öÌí¼ÓÆ¥ÅäµÄ object */
+                /* Library Member Name ä»…æ·»åŠ åŒ¹é…çš„ object */
                 if (strstr(_line_text, ".o")) 
                 {
                     index = 0;
-                    /* ÇĞ¸îºó×ª»» */
+                    /* åˆ‡å‰²åè½¬æ¢ */
                     token = strtok(_line_text, " ");
                     while (token != NULL)
                     {
                         if (index < OBJECT_INFO_STR_QTY - 1) {
                             value[index] = strtoul(token, &end_ptr, 10);
                         } 
-                        else    /* ×îºóÒ»¸öÊÇÃû³Æ */
+                        else    /* æœ€åä¸€ä¸ªæ˜¯åç§° */
                         {
                             new_line = strrchr(token, '\n');
                             if (new_line) {
@@ -1775,7 +2050,7 @@ int object_info_process(struct object_info **object_head,
                         token = strtok(NULL, " ");
                     }
 
-                    /* ±£´æ */
+                    /* ä¿å­˜ */
                     if (index == OBJECT_INFO_STR_QTY) 
                     {
                         for (struct file_path_list *path_temp = _file_path_list_head; 
@@ -1798,7 +2073,7 @@ int object_info_process(struct object_info **object_head,
                 }
                 break;
             case 2:
-                /* Library Member Name ½öÌí¼ÓÆ¥ÅäµÄ object */
+                /* Library Member Name ä»…æ·»åŠ åŒ¹é…çš„ object */
                 if (strstr(_line_text, STR_OBJECT_TOTALS)) 
                 {
                     state = 3;
@@ -1807,14 +2082,14 @@ int object_info_process(struct object_info **object_head,
                 else
                 {
                     index = 0;
-                    /* ÇĞ¸îºó×ª»» */
+                    /* åˆ‡å‰²åè½¬æ¢ */
                     token = strtok(_line_text, " ");
                     while (token != NULL)
                     {
                         if (index < OBJECT_INFO_STR_QTY - 1) {
                             value[index] = strtoul(token, &end_ptr, 10);
                         } 
-                        else    /* ×îºóÒ»¸öÊÇÃû³Æ */
+                        else    /* æœ€åä¸€ä¸ªæ˜¯åç§° */
                         {
                             new_line = strrchr(token, '\n');
                             if (new_line) {
@@ -1828,7 +2103,7 @@ int object_info_process(struct object_info **object_head,
                         token = strtok(NULL, " ");
                     }
 
-                    /* ±£´æ */
+                    /* ä¿å­˜ */
                     if (index == OBJECT_INFO_STR_QTY) 
                     {
                         if (parse_mode == 1)
@@ -1873,20 +2148,22 @@ int object_info_process(struct object_info **object_head,
 
 
 /**
- * @brief  ¼ÇÂ¼ÎÄ¼ş´¦Àí
+ * @brief  è®°å½•æ–‡ä»¶å¤„ç†
  * @note   
- * @param  file_path:       ÎÄ¼şµÄ¾ø¶ÔÂ·¾¶
- * @param  region_head:     region Á´±íÍ·
- * @param  object_head:     object ÎÄ¼şÁ´±íÍ·
- * @param  is_has_object:   [out] ÊÇ·ñ´æÔÚ object ĞÅÏ¢
- * @param  is_has_region:   [out] ÊÇ·ñ´æÔÚ region ĞÅÏ¢
- * @retval 0: Õı³£ | -x: ´íÎó
+ * @param  file_path:       æ–‡ä»¶çš„ç»å¯¹è·¯å¾„
+ * @param  region_head:     region é“¾è¡¨å¤´
+ * @param  object_head:     object æ–‡ä»¶é“¾è¡¨å¤´
+ * @param  is_has_object:   [out] æ˜¯å¦å­˜åœ¨ object ä¿¡æ¯
+ * @param  is_has_region:   [out] æ˜¯å¦å­˜åœ¨ region ä¿¡æ¯
+ * @param  is_match_memory: æ˜¯å¦è¦å°† region ä¸ memory ç»‘å®š
+ * @retval 0: æ­£å¸¸ | -x: é”™è¯¯
  */
 int record_file_process(const char *file_path, 
                         struct load_region **region_head,
                         struct object_info **object_head,
                         bool *is_has_object,
-                        bool *is_has_region)
+                        bool *is_has_region,
+                        bool is_match_memory)
 {
     *is_has_object = false;
     *is_has_region = false;
@@ -1906,7 +2183,7 @@ int record_file_process(const char *file_path,
     if (p_file == NULL) {
         return -1;
     }
-    result = region_info_process(p_file, end_pos, region_head);
+    result = region_info_process(p_file, end_pos, region_head, is_match_memory);
     if (result == 0) {
         *is_has_region = true;
     }
@@ -1916,11 +2193,11 @@ int record_file_process(const char *file_path,
 
 
 /**
- * @brief  object ĞÅÏ¢´òÓ¡´¦Àí
+ * @brief  object ä¿¡æ¯æ‰“å°å¤„ç†
  * @note   
- * @param  object_head:     object ÎÄ¼şÁ´±íÍ·
- * @param  max_path_len:    ×î´óÂ·¾¶³¤¶È
- * @param  is_has_record:   ÊÇ·ñÓĞ¼ÇÂ¼ÎÄ¼ş
+ * @param  object_head:     object æ–‡ä»¶é“¾è¡¨å¤´
+ * @param  max_path_len:    æœ€å¤§è·¯å¾„é•¿åº¦
+ * @param  is_has_record:   æ˜¯å¦æœ‰è®°å½•æ–‡ä»¶
  * @retval None
  */
 void object_print_process(struct object_info *object_head,
@@ -1965,13 +2242,13 @@ void object_print_process(struct object_info *object_head,
             continue;
         }
 
-        char *path          = obj_info->path;
+        char *path        = obj_info->path;
         char ram_text[MAX_PRJ_NAME_SIZE]   = {0};
         char flash_text[MAX_PRJ_NAME_SIZE] = {0};
-        size_t path_len     = strnlen_s(obj_info->path, MAX_PATH);
-        size_t path_space   = max_path_len - path_len + 1;
-        uint32_t ram        = obj_info->rw_data + obj_info->zi_data;
-        uint32_t flash      = obj_info->code + obj_info->ro_data + obj_info->rw_data;
+        size_t path_len   = strnlen_s(obj_info->path, MAX_PATH);
+        size_t path_space = max_path_len - path_len + 1;
+        uint32_t ram      = obj_info->rw_data + obj_info->zi_data;
+        uint32_t flash    = obj_info->code + obj_info->ro_data + obj_info->rw_data;
 
 //        if (obj_info->path == NULL || _is_display_path == false) 
         if (_is_display_path == false) 
@@ -2087,217 +2364,96 @@ void object_print_process(struct object_info *object_head,
 
 
 /**
- * @brief  ´òÓ¡ÄÚ´æÕ¼ÓÃÇé¿ö
+ * @brief  æ¨¡å¼é›¶æ‰“å°å†…å­˜å ç”¨æƒ…å†µ
  * @note   
- * @param  memory_head:     memory Á´±íÍ·
  * @param  e_region:        execution region
- * @param  type:            Ö¸¶¨´òÓ¡µÄ execution region ÄÚ´æÀàĞÍ
- * @param  max_region_name: ×î´óµÄ execution region Ãû³Æ³¤¶È
- * @param  is_has_record:   ÊÇ·ñÓĞ¼ÇÂ¼ÎÄ¼ş
- * @param  is_print_null:   ÊÇ·ñ´òÓ¡Î´Ê¹ÓÃµÄ´æ´¢Æ÷
+ * @param  mem_type:        æŒ‡å®šæ‰“å°çš„ execution region å†…å­˜ç±»å‹
+ * @param  max_region_name: æœ€å¤§çš„ execution region åç§°é•¿åº¦
+ * @param  is_has_record:   æ˜¯å¦æœ‰è®°å½•æ–‡ä»¶
+ * @param  is_print_null:   æ˜¯å¦æ‰“å°æœªä½¿ç”¨çš„å­˜å‚¨å™¨
  * @retval None
  */
-void memory_print_process(struct memory_info *memory_head,
-                          struct exec_region *e_region, 
-                          MEMORY_TYPE type,
-                          size_t max_region_name,
-                          bool is_has_record,
-                          bool is_print_null)
+void memory_mode0_print(struct exec_region *e_region,
+                        MEMORY_TYPE mem_type,
+                        size_t max_region_name, 
+                        bool is_has_record,
+                        bool is_print_null)
 {
-    size_t sram_id    = 0;
-    size_t flash_id   = 0;
-    size_t unknown_id = 0;
-    bool is_print_unknown = false;
+    char str[MAX_PRJ_NAME_SIZE] = {0};
 
-    for (struct memory_info *memory_temp = memory_head;
-         memory_temp != NULL;
-         memory_temp = memory_temp->next)
+    if (mem_type == MEMORY_TYPE_UNKNOWN) 
     {
-        size_t id = 0;
-        char str[MAX_PRJ_NAME_SIZE] = {0};
+        bool is_has_unknown = false;
+        
+        for (struct exec_region *region_temp = e_region;
+             region_temp != NULL;
+             region_temp = region_temp->next)
+        {
+            if (region_temp->memory_type == MEMORY_TYPE_UNKNOWN) 
+            {
+                is_has_unknown = true;
+                break;
+            }
+        }
+        if (is_has_unknown)
+        {
+            strncpy_s(str, sizeof(str), "        UNKNOWN\n", strlen("        UNKNOWN\n"));
+            log_print(_log_file, str);
+            memory_mode2_print(e_region, max_region_name, is_has_record);
+        }
+        return;
+    }
 
-        if (type == MEMORY_TYPE_SRAM
-        &&  memory_temp->type == MEMORY_TYPE_SRAM)
-        {
-            sram_id++;
-            id = sram_id;
-            snprintf(str, sizeof(str), "SRAM %d   ", id);
-        }
-        else if (type == MEMORY_TYPE_FLASH
-        &&       memory_temp->type == MEMORY_TYPE_FLASH)
-        {
-            flash_id++;
-            id = flash_id;
-            snprintf(str, sizeof(str), "FLASH %d  ", id);
-        }
-        else if (type == MEMORY_TYPE_UNKNOWN) {
-            strncpy_s(str, sizeof(str), "UNKNOWN", strlen("UNKNOWN"));
-        }
-        else {
+    size_t id = 0;
+    bool is_no_region  = true;
+    bool is_print_head = false;
+
+    for (struct memory_info *memory = _memory_info_head;
+         memory != NULL;
+         memory = memory->next)
+    {
+        if (memory->type != mem_type) {
             continue;
         }
 
-        bool is_print_region = false;
+        id++;
+        is_no_region  = true;
+        is_print_head = false;
+
+        if (mem_type == MEMORY_TYPE_RAM) {
+            snprintf(str, sizeof(str), "        RAM %d    ", id);
+        }
+        else if (mem_type == MEMORY_TYPE_FLASH) {
+            snprintf(str, sizeof(str), "        FLASH %d  ", id);
+        }
+
         for (struct exec_region *region = e_region;
              region != NULL;
              region = region->next)
         {
-            if (region->memory_id == memory_temp->id)
+            if (region->is_printed == false
+            &&  memory->id   == region->memory_id
+            &&  memory->type == region->memory_type)
             {
-                if (memory_temp->is_printed == false)
+                if (is_print_head == false)
                 {
-                    log_print(_log_file, "        %s%*s [0x%.8X | 0x%.8X (%d)]\n",
-                              str, max_region_name, " ", memory_temp->base_addr, memory_temp->size, memory_temp->size);
-                    memory_temp->is_printed = true;
-                }
-            }
-            else if (type == MEMORY_TYPE_UNKNOWN
-            &&       region->memory_id == 1)
-            {
-                if (is_print_unknown == false) 
-                {
-                    log_print(_log_file, "        %s\n", str);
-                    is_print_unknown = true;
-                }
-            }
-            else {
-                continue;
-            }
-
-            if (region->is_printed) {
-                continue;
-            }
-
-            double size = 0;
-            double used_size = 0;
-            char size_str[MAX_PRJ_NAME_SIZE] = {0};
-            char used_size_str[MAX_PRJ_NAME_SIZE] = {0};
-
-            if (region->used_size < 1024)
-            {
-                used_size = region->used_size;
-                snprintf(used_size_str, sizeof(used_size_str), "%8d", (uint32_t)used_size);
-            }
-            else if (region->used_size < (1024 * 1024))
-            {
-                used_size = (double)region->used_size / 1024;
-                snprintf(used_size_str, sizeof(used_size_str), "%5.1f KB", used_size);
-            }
-            else
-            {
-                used_size = (double)region->used_size / (1024 * 1024);
-                snprintf(used_size_str, sizeof(used_size_str), "%5.1f MB", used_size);
-            }
-
-            if (region->size < 1024)
-            {
-                size = region->size;
-                snprintf(size_str, sizeof(size_str), "%8d", (uint32_t)size);
-            }
-            else if (region->size < (1024 * 1024))
-            {
-                size = (double)region->size / 1024;
-                snprintf(size_str, sizeof(size_str), "%5.1f KB", size);
-            }
-            else
-            {
-                size = (double)region->size / (1024 * 1024);
-                snprintf(size_str, sizeof(size_str), "%5.1f MB", size);
-            }
-
-            double percent = (double)region->used_size * 100 / region->size;
-            if (percent > 100) {
-                percent = 100;
-            }
-
-            size_t used = 0;
-            char progress[256] = {0};
-
-            /* ÏÈÌî³äÊµ¼ÊÕ¼ÓÃ²¿·Ö */
-            for (; used < ((uint32_t)percent / 2); used++) {
-                strncat_s(progress, sizeof(progress), USED_SYMBOL, strlen(USED_SYMBOL));
-            }
-            /* Ğ¡ÓÚÏÔÊ¾±ÈÀı£¬±ÜÃâÊÇ¿ÕµÄ */
-            if (used == 0 && region->used_size != 0) 
-            {
-                strncpy_s(progress, sizeof(progress), USED_SYMBOL, strlen(USED_SYMBOL));
-                used = 1;
-            }
-            /* ½«Õ¼ÓÃ²¿·ÖµÄ ZI ²¿·ÖÌæ»» */
-            for (struct region_block *block = region->zi_block;
-                 block != NULL;
-                 block = block->next)
-            {
-                size_t zi_start = ((double)block->start_addr - region->base_addr) * 100 / region->size / 2;
-                size_t zi_end   = ((double)block->start_addr + block->size - region->base_addr) * 100 / region->size / 2;
-
-                if (region->base_addr > block->start_addr) {
-                    zi_start = 1;
-                }
-                log_save(_log_file, "                [zi start] %d   [zi end] %d\n", zi_start, zi_end);
-
-                for (; zi_start < zi_end && zi_start < used; zi_start++) {
-                    strncpy_s(&progress[strlen(USED_SYMBOL) * zi_start], sizeof(progress), ZI_SYMBOL, strlen(ZI_SYMBOL));
+                    log_print(_log_file, "%s%*s [0x%.8X | 0x%.8X (%d)]\n",
+                              str, max_region_name, " ", memory->base_addr, memory->size, memory->size);
+                    is_print_head = true;
                 }
 
-                if ((block->start_addr + block->size) >= (region->base_addr + region->size)) {
-                    break;
-                }
+                progress_print(region, max_region_name, is_has_record);
+                is_no_region = false;
             }
-            /* Ê£ÏÂÎ´Ê¹ÓÃ²¿·Ö */
-            for (size_t unused = 0; unused < (50 - used); unused++) {
-                strncat_s(progress, sizeof(progress), UNUSE_SYMBOL, strlen(UNUSE_SYMBOL));
-            }
-
-            size_t space_len = max_region_name - strnlen_s(region->name, max_region_name) + 1;
-            snprintf(_line_text, sizeof(_line_text),
-                     "                %s%*s [0x%.8X]|%s| ( %s / %s ) %5.1f%%  ",
-                     region->name, space_len, " ", region->base_addr, progress, used_size_str, size_str, percent);
-
-            if (is_has_record)
-            {
-                if (region->old_exec_region == NULL)
-                {
-                    strncat_s(_line_text, sizeof(_line_text), "[NEW]", 5);
-                }
-                else
-                {
-                    char sign;
-                    uint32_t data_increm = 0;
-                    char str_increm[MAX_PRJ_NAME_SIZE] = {0};
-
-                    if (region->used_size < region->old_exec_region->used_size)
-                    {
-                        sign = '-';
-                        data_increm = region->old_exec_region->used_size - region->used_size;
-                    }
-                    else
-                    {
-                        sign = '+';
-                        data_increm = region->used_size - region->old_exec_region->used_size;
-                    }
-
-                    if (data_increm)
-                    {
-                        snprintf(str_increm, sizeof(str_increm), "[%c%d]", sign, data_increm);
-                        strncat_s(_line_text, sizeof(_line_text), str_increm, strnlen_s(str_increm, sizeof(str_increm)));
-                    }
-                }
-            }
-            log_print(_log_file, "%s\n", _line_text);
-
-            is_print_region    = true;
-            region->is_printed = true;
         }
 
-        if (is_print_region == false) 
+        if (is_no_region 
+        &&  is_print_null 
+        &&  memory->is_from_pack) 
         {
-            if (is_print_null && type != MEMORY_TYPE_UNKNOWN)
-            {
-                log_print(_log_file, "        %s%*s [0x%.8X | 0x%.8X (%d)]\n",
-                          str, max_region_name, " ", memory_temp->base_addr, memory_temp->size, memory_temp->size);
-                log_print(_log_file, "                NULL\n \n");
-            }
+            log_print(_log_file, "%s%*s [0x%.8X | 0x%.8X (%d)]\n",
+                      str, max_region_name, " ", memory->base_addr, memory->size, memory->size);
+            log_print(_log_file, "                NULL\n \n");
         }
         else {
             log_print(_log_file, " \n");
@@ -2307,9 +2463,279 @@ void memory_print_process(struct memory_info *memory_head,
 
 
 /**
- * @brief  ´òÓ¡Õ»Ê¹ÓÃÇé¿ö
+ * @brief  æ¨¡å¼ä¸€æ‰“å°å†…å­˜å ç”¨æƒ…å†µ
  * @note   
- * @param  file_path: htm ÎÄ¼şÂ·¾¶
+ * @param  e_region:        execution region
+ * @param  mem_type:        æŒ‡å®šæ‰“å°çš„ execution region å†…å­˜ç±»å‹
+ * @param  is_offchip:      æ˜¯å¦ä¸ºç‰‡å¤– memory
+ * @param  max_region_name: æœ€å¤§çš„ execution region åç§°é•¿åº¦
+ * @param  is_has_record:   æ˜¯å¦æœ‰è®°å½•æ–‡ä»¶
+ * @retval None
+ */
+void memory_mode1_print(struct exec_region *e_region,
+                        MEMORY_TYPE mem_type,
+                        bool is_offchip,
+                        size_t max_region_name, 
+                        bool is_has_record)
+{
+    char str[MAX_PRJ_NAME_SIZE] = {0};
+
+    if (mem_type == MEMORY_TYPE_UNKNOWN) 
+    {
+        bool is_has_unknown = false;
+        
+        for (struct exec_region *region = e_region;
+             region != NULL;
+             region = region->next)
+        {
+            if (region->memory_type == MEMORY_TYPE_UNKNOWN) 
+            {
+                is_has_unknown = true;
+                break;
+            }
+        }
+        if (is_has_unknown)
+        {
+            strncpy_s(str, sizeof(str), "        UNKNOWN\n", strlen("        UNKNOWN\n"));
+            log_print(_log_file, str);
+            memory_mode2_print(e_region, max_region_name, is_has_record);
+        }
+        return;
+    }
+
+    if (mem_type == MEMORY_TYPE_RAM) {
+        strncpy_s(str, sizeof(str), "        RAM", strlen("        RAM"));
+    }
+    else if (mem_type == MEMORY_TYPE_FLASH) {
+        strncpy_s(str, sizeof(str), "        FLASH", strlen("        FLASH"));
+    }
+
+    if (is_offchip == false) {
+        strncat_s(str, sizeof(str), " (on-chip)\n", strlen(" (on-chip)\n"));
+    } else {
+        strncat_s(str, sizeof(str), " (off-chip)\n", strlen(" (off-chip)\n"));
+    }
+    
+    bool is_print_head = false;
+    for (struct exec_region *region = e_region;
+         region != NULL;
+         region = region->next)
+    {
+        if (region->is_printed  == false
+        &&  region->is_offchip  == is_offchip
+        &&  region->memory_type == mem_type)
+        {
+            if (is_print_head == false)
+            {
+                log_print(_log_file, str);
+                is_print_head = true;
+            }
+            progress_print(region, max_region_name, is_has_record);
+            region->is_printed = true;
+        }
+    }
+
+    if (is_print_head) {
+        log_print(_log_file, " \n");
+    }
+}
+
+
+/**
+ * @brief  æ¨¡å¼äºŒæ‰“å°å†…å­˜å ç”¨æƒ…å†µ
+ * @note   
+ * @param  e_region:        execution region
+ * @param  max_region_name: æœ€å¤§çš„ execution region åç§°é•¿åº¦
+ * @param  is_has_record:   æ˜¯å¦æœ‰è®°å½•æ–‡ä»¶
+ * @retval None
+ */
+void memory_mode2_print(struct exec_region *e_region,
+                        size_t max_region_name, 
+                        bool is_has_record)
+{
+    for (struct exec_region *region_temp = e_region;
+         region_temp != NULL;
+         region_temp = region_temp->next)
+    {
+        if (region_temp->is_printed == false)
+        {
+            progress_print(region_temp, max_region_name, is_has_record);
+            region_temp->is_printed = true;
+        }
+    }
+    log_print(_log_file, " \n");
+}
+
+
+/**
+ * @brief  å†…å­˜å ç”¨è¿›åº¦æ¡åŒ–æ‰“å°
+ * @note   
+ * @param  region:          execution region
+ * @param  max_region_name: æœ€å¤§çš„ execution region åç§°é•¿åº¦
+ * @param  is_has_record:   æ˜¯å¦æœ‰è®°å½•æ–‡ä»¶
+ * @retval None
+ */
+void progress_print(struct exec_region *region,
+                    size_t max_region_name, 
+                    bool is_has_record)
+{
+    double size = 0;
+    double used_size = 0;
+    char size_str[MAX_PRJ_NAME_SIZE] = {0};
+    char used_size_str[MAX_PRJ_NAME_SIZE] = {0};
+
+    if (region->used_size < 1024)
+    {
+        used_size = region->used_size;
+        snprintf(used_size_str, sizeof(used_size_str), "%8d", (uint32_t)used_size);
+    }
+    else if (region->used_size < (1024 * 1024))
+    {
+        used_size = (double)region->used_size / 1024;
+        snprintf(used_size_str, sizeof(used_size_str), "%5.1f KB", used_size);
+    }
+    else
+    {
+        used_size = (double)region->used_size / (1024 * 1024);
+        snprintf(used_size_str, sizeof(used_size_str), "%5.1f MB", used_size);
+    }
+
+    if (region->size < 1024)
+    {
+        size = region->size;
+        snprintf(size_str, sizeof(size_str), "%8d", (uint32_t)size);
+    }
+    else if (region->size < (1024 * 1024))
+    {
+        size = (double)region->size / 1024;
+        snprintf(size_str, sizeof(size_str), "%5.1f KB", size);
+    }
+    else
+    {
+        size = (double)region->size / (1024 * 1024);
+        snprintf(size_str, sizeof(size_str), "%5.1f MB", size);
+    }
+
+    double percent = (double)region->used_size * 100 / region->size;
+    if (percent > 100) {
+        percent = 100;
+    }
+
+    size_t used            = 0;
+    char progress[256]     = {0};
+    uint8_t zi_symbol[2]   = {0};
+    uint8_t used_symbol[2] = {0};
+    uint8_t symbol_size    = 0;
+
+    symbol_size    = 1;
+    zi_symbol[0]   = ZI_SYMBOL_0;
+    used_symbol[0] = USED_SYMBOL_0;
+
+    if (_progress_style == PROGRESS_STYLE_0)
+    {
+        if (_encoding_type == ENCODING_TYPE_GBK)
+        {
+            symbol_size    = 2;
+            zi_symbol[0]   = ZI_SYMBOL_GBK_H;
+            zi_symbol[1]   = ZI_SYMBOL_GBK_L;
+            used_symbol[0] = USED_SYMBOL_GBK_H;
+            used_symbol[1] = USED_SYMBOL_GBK_L;
+        }
+        else if (_encoding_type == ENCODING_TYPE_BIG5)
+        {
+            symbol_size    = 2;
+            zi_symbol[0]   = ZI_SYMBOL_BIG5_H;
+            zi_symbol[1]   = ZI_SYMBOL_BIG5_L;
+            used_symbol[0] = USED_SYMBOL_BIG5_H;
+            used_symbol[1] = USED_SYMBOL_BIG5_L;
+        }
+    }
+    else if (_progress_style == PROGRESS_STYLE_2)
+    {
+        symbol_size    = 1;
+        zi_symbol[0]   = ZI_SYMBOL_1;
+        used_symbol[0] = USED_SYMBOL_1;
+    }
+
+    /* å…ˆå¡«å……å®é™…å ç”¨éƒ¨åˆ† */
+    for (; used < ((uint32_t)percent / 2); used++)
+    {
+        memcpy(&progress[symbol_size * used], used_symbol, symbol_size);
+    }
+    /* å°äºæ˜¾ç¤ºæ¯”ä¾‹ï¼Œé¿å…æ˜¯ç©ºçš„ */
+    if (used == 0 && region->used_size != 0)
+    {
+        memcpy(&progress[0], used_symbol, symbol_size);
+        used = 1;
+    }
+    /* å°†å ç”¨éƒ¨åˆ†çš„ ZI éƒ¨åˆ†æ›¿æ¢ */
+    for (struct region_block *block = region->zi_block;
+         block != NULL;
+         block = block->next)
+    {
+        size_t zi_start = ((double)block->start_addr - region->base_addr) * 100 / region->size / 2;
+        size_t zi_end   = ((double)block->start_addr + block->size - region->base_addr) * 100 / region->size / 2;
+
+        if (zi_start == 0 && block->start_addr > region->base_addr) {
+            zi_start = 1;
+        }
+        log_save(_log_file, "                [zi start] %d   [zi end] %d\n", zi_start, zi_end);
+
+        for (; zi_start < zi_end && zi_start < used; zi_start++) {
+            memcpy(&progress[symbol_size * zi_start], zi_symbol, symbol_size);
+        }
+
+        if ((block->start_addr + block->size) >= (region->base_addr + region->size)) {
+            break;
+        }
+    }
+    /* å‰©ä¸‹æœªä½¿ç”¨éƒ¨åˆ† */
+    for (size_t unused = 0; unused < (50 - used); unused++){
+        strncat_s(progress, sizeof(progress), UNUSE_SYMBOL, strlen(UNUSE_SYMBOL));
+    }
+
+    size_t space_len = max_region_name - strnlen_s(region->name, max_region_name) + 1;
+    snprintf(_line_text, sizeof(_line_text),
+             "                %s%*s [0x%.8X]|%s| ( %s / %s ) %5.1f%%  ",
+             region->name, space_len, " ", region->base_addr, progress, used_size_str, size_str, percent);
+
+    if (is_has_record)
+    {
+        if (region->old_exec_region == NULL) {
+            strncat_s(_line_text, sizeof(_line_text), "[NEW]", 5);
+        }
+        else
+        {
+            char sign;
+            uint32_t data_increm = 0;
+            char str_increm[MAX_PRJ_NAME_SIZE] = {0};
+
+            if (region->used_size < region->old_exec_region->used_size)
+            {
+                sign = '-';
+                data_increm = region->old_exec_region->used_size - region->used_size;
+            }
+            else
+            {
+                sign = '+';
+                data_increm = region->used_size - region->old_exec_region->used_size;
+            }
+
+            if (data_increm)
+            {
+                snprintf(str_increm, sizeof(str_increm), "[%c%d]", sign, data_increm);
+                strncat_s(_line_text, sizeof(_line_text), str_increm, strnlen_s(str_increm, sizeof(str_increm)));
+            }
+        }
+    }
+    log_print(_log_file, "%s\n", _line_text);
+}
+
+
+/**
+ * @brief  æ‰“å°æ ˆä½¿ç”¨æƒ…å†µ
+ * @note   
+ * @param  file_path: htm æ–‡ä»¶è·¯å¾„
  * @retval None
  */
 void stack_print_process(const char *file_path)
@@ -2339,13 +2765,13 @@ void stack_print_process(const char *file_path)
 
 
 /**
- * @brief  °´À©Õ¹ÃûËÑË÷ÎÄ¼ş
- * @note   ±¾º¯Êı²»»áµİ¹éËÑË÷
- * @param  dir:             ÒªËÑË÷µÄÄ¿Â¼
- * @param  dir_len:         ÒªËÑË÷µÄÄ¿Â¼³¤¶È
- * @param  extension[]:     À©Õ¹Ãû£¬Ö§³Ö¶à¸ö
- * @param  extension_qty:   À©Õ¹ÃûÊıÁ¿
- * @param  list:            [out] ±£´æËÑË÷µ½µÄÎÄ¼şÂ·¾¶
+ * @brief  æŒ‰æ‰©å±•åæœç´¢æ–‡ä»¶
+ * @note   æœ¬å‡½æ•°ä¸ä¼šé€’å½’æœç´¢
+ * @param  dir:             è¦æœç´¢çš„ç›®å½•
+ * @param  dir_len:         è¦æœç´¢çš„ç›®å½•é•¿åº¦
+ * @param  extension[]:     æ‰©å±•åï¼Œæ”¯æŒå¤šä¸ª
+ * @param  extension_qty:   æ‰©å±•åæ•°é‡
+ * @param  list:            [out] ä¿å­˜æœç´¢åˆ°çš„æ–‡ä»¶è·¯å¾„
  * @retval None
  */
 void search_files_by_extension(const char *dir, 
@@ -2357,11 +2783,11 @@ void search_files_by_extension(const char *dir,
     HANDLE h_find;
     WIN32_FIND_DATA find_data;
 
-    /* ¼ÓÉÏ '*' ÒÔËÑË÷ËùÓĞÎÄ¼şºÍÎÄ¼ş¼Ğ */
+    /* åŠ ä¸Š '*' ä»¥æœç´¢æ‰€æœ‰æ–‡ä»¶å’Œæ–‡ä»¶å¤¹ */
     char *path = (char *)malloc(dir_len + 3);
     snprintf(path, dir_len + 3, "%s\\*", dir);
 
-    /* ¿ªÊ¼ËÑË÷ */
+    /* å¼€å§‹æœç´¢ */
     h_find = FindFirstFile(path, &find_data);
     if (h_find == INVALID_HANDLE_VALUE) 
     {
@@ -2370,7 +2796,7 @@ void search_files_by_extension(const char *dir,
     }
 
     do {
-        /* Èç¹ûÕÒµ½µÄÊÇÎÄ¼ş£¬ÅĞ¶ÏÆäºó×ºÊÇ·ñÎª keil ¹¤³Ì */
+        /* å¦‚æœæ‰¾åˆ°çš„æ˜¯æ–‡ä»¶ï¼Œåˆ¤æ–­å…¶åç¼€æ˜¯å¦ä¸º keil å·¥ç¨‹ */
         if ((find_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0)
         {
             char *str = strrchr(find_data.cFileName, '.');
@@ -2389,12 +2815,12 @@ void search_files_by_extension(const char *dir,
 
 
 /**
- * @brief  log ¼ÇÂ¼
+ * @brief  log è®°å½•
  * @note   
- * @param  p_log:    log ÎÄ¼ş
- * @param  is_print: ÊÇ·ñ´òÓ¡
- * @param  fmt:      ¸ñÊ½»¯×Ö·û´®
- * @param  ...:      ²»¶¨³¤²ÎÊı 
+ * @param  p_log:    log æ–‡ä»¶
+ * @param  is_print: æ˜¯å¦æ‰“å°
+ * @param  fmt:      æ ¼å¼åŒ–å­—ç¬¦ä¸²
+ * @param  ...:      ä¸å®šé•¿å‚æ•° 
  * @retval None
  */
 void log_write(FILE *p_log, 
@@ -2429,20 +2855,20 @@ void log_write(FILE *p_log,
 
 
 /**
- * @brief  Æ´½ÓÂ·¾¶
+ * @brief  æ‹¼æ¥è·¯å¾„
  * @note   
- * @param  out_path:        [out] Æ´½ÓºóÊä³öµÄÂ·¾¶
- * @param  out_path_size:   Êä³öµÄÂ·¾¶µÄ´óĞ¡
- * @param  absolute_path:   ÊäÈëµÄ¾ø¶ÔÂ·¾¶
- * @param  relative_path:   ÊäÈëµÄÏà¶ÔÂ·¾¶
- * @retval 0: Õı³£ | -x: ´íÎó
+ * @param  out_path:        [out] æ‹¼æ¥åè¾“å‡ºçš„è·¯å¾„
+ * @param  out_path_size:   è¾“å‡ºçš„è·¯å¾„çš„å¤§å°
+ * @param  absolute_path:   è¾“å…¥çš„ç»å¯¹è·¯å¾„
+ * @param  relative_path:   è¾“å…¥çš„ç›¸å¯¹è·¯å¾„
+ * @retval 0: æ­£å¸¸ | -x: é”™è¯¯
  */
 int combine_path(char *out_path, 
                  size_t out_path_size,
                  const char *absolute_path, 
                  const char *relative_path)
 {
-    /* 1. ½«¾ø¶ÔÂ·¾¶ absolute_path µÄÎÄ¼şÃûºÍÀ©Õ¹ÃûÈ¥³ı */
+    /* 1. å°†ç»å¯¹è·¯å¾„ absolute_path çš„æ–‡ä»¶åå’Œæ‰©å±•åå»é™¤ */
     strncpy_s(out_path, out_path_size, absolute_path, strnlen_s(absolute_path, MAX_PATH));
 
     char *last_slash = strrchr(out_path, '\\');
@@ -2451,7 +2877,7 @@ int combine_path(char *out_path,
     }
     if (last_slash != NULL)
     {
-        /* ËµÃ÷²»ÊÇÊÇÅÌ·û¸ùÄ¿Â¼ */
+        /* è¯´æ˜ä¸æ˜¯æ˜¯ç›˜ç¬¦æ ¹ç›®å½• */
         if (*(last_slash - 1) != ':') {
             *last_slash = '\0';
         }
@@ -2460,11 +2886,11 @@ int combine_path(char *out_path,
         return -1;
     }
 
-    /* 2. ¶ÁÈ¡¾ø¶ÔÂ·¾¶µÄÄ¿Â¼²ã¼¶ ²¢ ¼ÇÂ¼Ã¿Ò»²ã¼¶µÄÏà¶ÔÆ«ÒÆÖµ */
+    /* 2. è¯»å–ç»å¯¹è·¯å¾„çš„ç›®å½•å±‚çº§ å¹¶ è®°å½•æ¯ä¸€å±‚çº§çš„ç›¸å¯¹åç§»å€¼ */
     size_t hierarchy_count = 0;
     size_t dir_hierarchy[MAX_DIR_HIERARCHY];
 
-    /* Öğ×Ö·û±éÀúÂ·¾¶ */
+    /* é€å­—ç¬¦éå†è·¯å¾„ */
     for (size_t i = 0; i < strnlen_s(out_path, out_path_size); i++)
     {
         if (out_path[i] == '\\' || out_path[i] == '/')
@@ -2477,7 +2903,7 @@ int combine_path(char *out_path,
         }
     }
 
-    /* 3. ¶ÁÈ¡Ïà¶ÔÂ·¾¶ relative_path µÄÏòÉÏ²ã¼¶Êı */
+    /* 3. è¯»å–ç›¸å¯¹è·¯å¾„ relative_path çš„å‘ä¸Šå±‚çº§æ•° */
     size_t dir_up_count = 0;
     size_t valid_path_offset = 0;
 
@@ -2502,7 +2928,7 @@ int combine_path(char *out_path,
         }
     }
 
-    /* 4. ¸ù¾İ 3 »ñµÃµÄ¼¶Êı£¬Ëõ¼õ¾ø¶ÔÂ·¾¶µÄÄ¿Â¼²ã¼¶ */
+    /* 4. æ ¹æ® 3 è·å¾—çš„çº§æ•°ï¼Œç¼©å‡ç»å¯¹è·¯å¾„çš„ç›®å½•å±‚çº§ */
     if (dir_up_count > 0)
     {
         if ((hierarchy_count - dir_up_count) > 0)
@@ -2516,7 +2942,7 @@ int combine_path(char *out_path,
         }
     }
 
-    /* 5. ¸ù¾İ 2 ¼ÇÂ¼µÄÆ«ÒÆÖµºÍ 3 »ñµÃµÄ¼¶Êı£¬½« absolute_path ºÍ relative_path Æ´½Ó */
+    /* 5. æ ¹æ® 2 è®°å½•çš„åç§»å€¼å’Œ 3 è·å¾—çš„çº§æ•°ï¼Œå°† absolute_path å’Œ relative_path æ‹¼æ¥ */
     strncat_s(out_path, out_path_size, "\\", 1);
     strncat_s(out_path, out_path_size, &relative_path[valid_path_offset], strnlen_s(&relative_path[valid_path_offset], MAX_PATH));
 
@@ -2532,13 +2958,13 @@ int combine_path(char *out_path,
 
 
 /**
- * @brief  ´´½¨ĞÂµÄÎÄ¼şĞÅÏ¢²¢Ìí¼Ó½øÁ´±í
+ * @brief  åˆ›å»ºæ–°çš„æ–‡ä»¶ä¿¡æ¯å¹¶æ·»åŠ è¿›é“¾è¡¨
  * @note   
- * @param  path_head:   ÎÄ¼şÂ·¾¶Á´±íÍ·
- * @param  name:        ÎÄ¼şÃû
- * @param  path:        ÎÄ¼şËùÔÚÂ·¾¶
- * @param  file_type:   ÎÄ¼şÀàĞÍ
- * @retval true: ³É¹¦ | false: Ê§°Ü
+ * @param  path_head:   æ–‡ä»¶è·¯å¾„é“¾è¡¨å¤´
+ * @param  name:        æ–‡ä»¶å
+ * @param  path:        æ–‡ä»¶æ‰€åœ¨è·¯å¾„
+ * @param  file_type:   æ–‡ä»¶ç±»å‹
+ * @retval true: æˆåŠŸ | false: å¤±è´¥
  */
 bool file_path_add(struct file_path_list **path_head,
                    const char *name,
@@ -2552,7 +2978,7 @@ bool file_path_add(struct file_path_list **path_head,
 
     memcpy_s(old_name, sizeof(old_name), name, strnlen_s(name, sizeof(old_name)));
 
-    /* ¿É±àÒëµÄÎÄ¼şºÍ lib ÎÄ¼ş¾ù»á±»±àÒëÎª .o ÎÄ¼ş£¬´Ë´¦ÌáÇ°½øĞĞÎÄ¼şÀ©Õ¹ÃûµÄÌæ»»£¬±ãÓÚºóĞøµÄ×Ö·û±È¶ÔºÍ²éÕÒ */
+    /* å¯ç¼–è¯‘çš„æ–‡ä»¶å’Œ lib æ–‡ä»¶å‡ä¼šè¢«ç¼–è¯‘ä¸º .o æ–‡ä»¶ï¼Œæ­¤å¤„æå‰è¿›è¡Œæ–‡ä»¶æ‰©å±•åçš„æ›¿æ¢ï¼Œä¾¿äºåç»­çš„å­—ç¬¦æ¯”å¯¹å’ŒæŸ¥æ‰¾ */
     if (file_type == OBJECT_FILE_TYPE_USER || file_type == OBJECT_FILE_TYPE_LIBRARY)
     {
         char *dot = strrchr(name, '.');
@@ -2571,7 +2997,7 @@ bool file_path_add(struct file_path_list **path_head,
         struct file_path_list *list = *path_head;
         struct file_path_list *last_list = list;
 
-        /* ÎÄ¼şÃûÏàÍ¬µÄ¿É±àÒëÎÄ¼ş»á±» keil ¸ÄÃû£¬´Ë´¦ÌáÇ°´¦Àí£¬±ãÓÚºóĞøµÄ×Ö·û±È¶ÔºÍ²éÕÒ */
+        /* æ–‡ä»¶åç›¸åŒçš„å¯ç¼–è¯‘æ–‡ä»¶ä¼šè¢« keil æ”¹åï¼Œæ­¤å¤„æå‰å¤„ç†ï¼Œä¾¿äºåç»­çš„å­—ç¬¦æ¯”å¯¹å’ŒæŸ¥æ‰¾ */
         do {
             if (is_rename == false
             &&  (file_type == OBJECT_FILE_TYPE_USER || file_type == OBJECT_FILE_TYPE_LIBRARY)
@@ -2601,9 +3027,9 @@ bool file_path_add(struct file_path_list **path_head,
 
 
 /**
- * @brief  ÊÍ·ÅÎÄ¼şĞÅÏ¢Á´±íÕ¼ÓÃµÄÄÚ´æ
+ * @brief  é‡Šæ”¾æ–‡ä»¶ä¿¡æ¯é“¾è¡¨å ç”¨çš„å†…å­˜
  * @note   
- * @param  path_head: Á´±íÍ·
+ * @param  path_head: é“¾è¡¨å¤´
  * @retval None
  */
 void file_path_free(struct file_path_list **path_head)
@@ -2624,22 +3050,26 @@ void file_path_free(struct file_path_list **path_head)
 
 
 /**
- * @brief  ´´½¨ĞÂµÄ memory ²¢Ìí¼Ó½øÁ´±í
+ * @brief  åˆ›å»ºæ–°çš„ memory å¹¶æ·»åŠ è¿›é“¾è¡¨
  * @note   
- * @param  memory_head: memory Á´±íÍ·
- * @param  name:        memory Ãû³Æ
- * @param  id:          memory ID
- * @param  base_addr:   memory »ùµØÖ·
- * @param  size:        memory ´óĞ¡£¬µ¥Î» byte
- * @param  type:        memory ÀàĞÍ
- * @retval true: ³É¹¦ | false: Ê§°Ü
+ * @param  memory_head:     memory é“¾è¡¨å¤´
+ * @param  name:            memory åç§°
+ * @param  id:              memory ID
+ * @param  base_addr:       memory åŸºåœ°å€
+ * @param  size:            memory å¤§å°ï¼Œå•ä½ byte
+ * @param  mem_type:        memory ç±»å‹
+ * @param  is_offchip:      æ˜¯å¦ä¸ºç‰‡å¤– memory
+ * @param  is_from_pack:    ä¿¡æ¯æ˜¯å¦æ¥è‡ª keil çš„ pack
+ * @retval true: æˆåŠŸ | false: å¤±è´¥
  */
 bool memory_info_add(struct memory_info **memory_head,
                      const char  *name,
                      size_t      id,
                      uint32_t    base_addr,
                      uint32_t    size,
-                     MEMORY_TYPE type)
+                     MEMORY_TYPE mem_type,
+                     bool        is_offchip,
+                     bool        is_from_pack)
 {
     struct memory_info **memory = memory_head;
 
@@ -2654,25 +3084,27 @@ bool memory_info_add(struct memory_info **memory_head,
     }
 
     *memory = (struct memory_info *)malloc(sizeof(struct memory_info));
-    (*memory)->name = strdup(name);
-    if ((*memory)->name == NULL) {
-        return false;
+    if (name) {
+        (*memory)->name = strdup(name);
+    } else {
+        (*memory)->name = NULL;
     }
-    (*memory)->id         = id;
-    (*memory)->base_addr  = base_addr;
-    (*memory)->size       = size;
-    (*memory)->type       = type;
-    (*memory)->is_printed = false;
-    (*memory)->next       = NULL;
+    (*memory)->id           = id;
+    (*memory)->base_addr    = base_addr;
+    (*memory)->size         = size;
+    (*memory)->type         = mem_type;
+    (*memory)->is_offchip   = is_offchip;
+    (*memory)->is_from_pack = is_from_pack;
+    (*memory)->next         = NULL;
 
     return true;
 }
 
 
 /**
- * @brief  ÊÍ·Å memory Á´±íÕ¼ÓÃµÄÄÚ´æ
+ * @brief  é‡Šæ”¾ memory é“¾è¡¨å ç”¨çš„å†…å­˜
  * @note   
- * @param  memory_head: memory Á´±íÍ·
+ * @param  memory_head: memory é“¾è¡¨å¤´
  * @retval None
  */
 void memory_info_free(struct memory_info **memory_head)
@@ -2682,7 +3114,9 @@ void memory_info_free(struct memory_info **memory_head)
     {
         struct memory_info *temp = memory;
         memory = memory->next;
-        free(temp->name);
+        if (temp->name) {
+            free(temp->name);
+        }
         free(temp);
     }
     *memory_head = NULL;
@@ -2690,10 +3124,10 @@ void memory_info_free(struct memory_info **memory_head)
 
 
 /**
- * @brief  ´´½¨ĞÂµÄ load region
+ * @brief  åˆ›å»ºæ–°çš„ load region
  * @note   
- * @param  region_head: region Á´±íÍ·
- * @param  name:        region Ãû³Æ
+ * @param  region_head: region é“¾è¡¨å¤´
+ * @param  name:        region åç§°
  * @retval NULL | struct load_region *
  */
 struct load_region * load_region_create(struct load_region **region_head, const char *name)
@@ -2724,15 +3158,16 @@ struct load_region * load_region_create(struct load_region **region_head, const 
 
 
 /**
- * @brief  ´´½¨ĞÂµÄ execution region ²¢Ìí¼Ó½ø load region Á´±í
+ * @brief  åˆ›å»ºæ–°çš„ execution region å¹¶æ·»åŠ è¿› load region é“¾è¡¨
  * @note   
- * @param  l_region:    load region Á´±íÍ·
- * @param  name:        execution region Ãû
- * @param  memory_id:   ËùÔÚµÄÄÚ´æ ID
- * @param  base_addr:   execution region »ùµØÖ·
- * @param  size:        execution region ´óĞ¡£¬µ¥Î» byte
- * @param  used_size:   execution region ÒÑÊ¹ÓÃ´óĞ¡£¬µ¥Î» byte
- * @param  type:        execution region ÄÚ´æÀàĞÍ
+ * @param  l_region:    load region é“¾è¡¨å¤´
+ * @param  name:        execution region å
+ * @param  memory_id:   æ‰€åœ¨çš„å†…å­˜ ID
+ * @param  base_addr:   execution region åŸºåœ°å€
+ * @param  size:        execution region å¤§å°ï¼Œå•ä½ byte
+ * @param  used_size:   execution region å·²ä½¿ç”¨å¤§å°ï¼Œå•ä½ byte
+ * @param  mem_type:    execution region å†…å­˜ç±»å‹
+ * @param  is_offchip:  æ˜¯å¦ä¸ºç‰‡å¤– memory
  * @retval NULL | struct exec_region *
  */
 struct exec_region * load_region_add_exec_region(struct load_region **l_region, 
@@ -2741,7 +3176,8 @@ struct exec_region * load_region_add_exec_region(struct load_region **l_region,
                                                  uint32_t    base_addr,
                                                  uint32_t    size,
                                                  uint32_t    used_size,
-                                                 MEMORY_TYPE type)
+                                                 MEMORY_TYPE mem_type,
+                                                 bool        is_offchip)
 {
     if (*l_region == NULL) {
         return NULL;
@@ -2767,7 +3203,8 @@ struct exec_region * load_region_add_exec_region(struct load_region **l_region,
     (*e_region)->base_addr       = base_addr;
     (*e_region)->size            = size;
     (*e_region)->used_size       = used_size;
-    (*e_region)->type            = type;
+    (*e_region)->memory_type     = mem_type;
+    (*e_region)->is_offchip      = is_offchip;
     (*e_region)->is_printed      = false;
     (*e_region)->zi_block        = NULL;
     (*e_region)->old_exec_region = NULL;
@@ -2778,9 +3215,9 @@ struct exec_region * load_region_add_exec_region(struct load_region **l_region,
 
 
 /**
- * @brief  ÊÍ·Å load region Á´±íÕ¼ÓÃµÄÄÚ´æ
+ * @brief  é‡Šæ”¾ load region é“¾è¡¨å ç”¨çš„å†…å­˜
  * @note   
- * @param  region_head: Á´±íÍ·
+ * @param  region_head: é“¾è¡¨å¤´
  * @retval None
  */
 void load_region_free(struct load_region **region_head)
@@ -2819,15 +3256,15 @@ void load_region_free(struct load_region **region_head)
 
 
 /**
- * @brief  ´´½¨ĞÂµÄ object ÎÄ¼şĞÅÏ¢²¢Ìí¼Ó½øÁ´±í
+ * @brief  åˆ›å»ºæ–°çš„ object æ–‡ä»¶ä¿¡æ¯å¹¶æ·»åŠ è¿›é“¾è¡¨
  * @note   
- * @param  object_head: Á´±íÍ·
- * @param  name:        object ÎÄ¼şÃû
- * @param  code:        code ´óĞ¡£¬µ¥Î» byte
- * @param  ro_data:     read-only data ´óĞ¡£¬µ¥Î» byte
- * @param  rw_data:     read-write data ´óĞ¡£¬µ¥Î» byte
- * @param  zi_data:     zero-initialize data ´óĞ¡£¬µ¥Î» byte
- * @retval true: ³É¹¦ | false: Ê§°Ü
+ * @param  object_head: é“¾è¡¨å¤´
+ * @param  name:        object æ–‡ä»¶å
+ * @param  code:        code å¤§å°ï¼Œå•ä½ byte
+ * @param  ro_data:     read-only data å¤§å°ï¼Œå•ä½ byte
+ * @param  rw_data:     read-write data å¤§å°ï¼Œå•ä½ byte
+ * @param  zi_data:     zero-initialize data å¤§å°ï¼Œå•ä½ byte
+ * @retval true: æˆåŠŸ | false: å¤±è´¥
  */
 bool object_info_add(struct object_info **object_head,
                      const char *name,
@@ -2866,9 +3303,9 @@ bool object_info_add(struct object_info **object_head,
 
 
 /**
- * @brief  ÊÍ·Å object ÎÄ¼şĞÅÏ¢Õ¼ÓÃµÄÄÚ´æ
+ * @brief  é‡Šæ”¾ object æ–‡ä»¶ä¿¡æ¯å ç”¨çš„å†…å­˜
  * @note   
- * @param  object_head: Á´±íÍ·
+ * @param  object_head: é“¾è¡¨å¤´
  * @retval None
  */
 void object_info_free(struct object_info **object_head)
@@ -2886,9 +3323,9 @@ void object_info_free(struct object_info **object_head)
 
 
 /**
- * @brief  ³õÊ¼»¯¶¯Ì¬ÁĞ±í
+ * @brief  åˆå§‹åŒ–åŠ¨æ€åˆ—è¡¨
  * @note   
- * @param  capacity: ÁĞ±íÈİÁ¿
+ * @param  capacity: åˆ—è¡¨å®¹é‡
  * @retval NULL | struct prj_path_list *
  */
 struct prj_path_list * prj_path_list_init(size_t capacity)
@@ -2904,15 +3341,15 @@ struct prj_path_list * prj_path_list_init(size_t capacity)
 
 
 /**
- * @brief  Ïò¶¯Ì¬ÁĞ±íÌí¼ÓÔªËØ
+ * @brief  å‘åŠ¨æ€åˆ—è¡¨æ·»åŠ å…ƒç´ 
  * @note   
- * @param  list: ÁĞ±í¶ÔÏó
- * @param  item: ÒªĞÂÔöµÄÏî
+ * @param  list: åˆ—è¡¨å¯¹è±¡
+ * @param  item: è¦æ–°å¢çš„é¡¹
  * @retval None
  */
 void prj_path_list_add(struct prj_path_list *list, char *item)
 {
-    /* Èç¹ûÊı×éÒÑÂú£¬½«Æä×î´óÈİÁ¿·­±¶ */
+    /* å¦‚æœæ•°ç»„å·²æ»¡ï¼Œå°†å…¶æœ€å¤§å®¹é‡ç¿»å€ */
     if (list->size == list->capacity)
     {
         list->capacity *= 2;
@@ -2923,9 +3360,9 @@ void prj_path_list_add(struct prj_path_list *list, char *item)
 
 
 /**
- * @brief  ÊÍ·Å¶¯Ì¬ÁĞ±í
+ * @brief  é‡Šæ”¾åŠ¨æ€åˆ—è¡¨
  * @note   
- * @param  list: ÁĞ±í¶ÔÏó
+ * @param  list: åˆ—è¡¨å¯¹è±¡
  * @retval None
  */
 void prj_path_list_free(struct prj_path_list *list)
@@ -2939,10 +3376,10 @@ void prj_path_list_free(struct prj_path_list *list)
 
 
 /**
- * @brief  Ä³Â·¾¶ÊÇ·ñÎª keil ¹¤³Ì
+ * @brief  æŸè·¯å¾„æ˜¯å¦ä¸º keil å·¥ç¨‹
  * @note   
- * @param  path: Â·¾¶
- * @retval true: ÊÇ | false: ·ñ
+ * @param  path: è·¯å¾„
+ * @retval true: æ˜¯ | false: å¦
  */
 bool is_keil_project(const char *path)
 {
@@ -2963,12 +3400,12 @@ bool is_keil_project(const char *path)
 
 
 /**
- * @brief  ×Ö·û´®±È¶Ô
+ * @brief  å­—ç¬¦ä¸²æ¯”å¯¹
  * @note   
- * @param  str1:     ×Ö·û´® 1
- * @param  str2[]:   ×Ö·û´®×é 2
- * @param  str2_qty: ×Ö·û´®×é 2 µÄÊıÁ¿
- * @retval true: Ò»ÖÂ | false: ²»Ò»ÖÂ
+ * @param  str1:     å­—ç¬¦ä¸² 1
+ * @param  str2[]:   å­—ç¬¦ä¸²ç»„ 2
+ * @param  str2_qty: å­—ç¬¦ä¸²ç»„ 2 çš„æ•°é‡
+ * @retval true: ä¸€è‡´ | false: ä¸ä¸€è‡´
  */
 bool is_same_string(const char *str1, 
                     const char *str2[], 
