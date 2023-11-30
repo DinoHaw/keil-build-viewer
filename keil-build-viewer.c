@@ -29,7 +29,7 @@
  * This file is keil-build-viewer.
  *
  * Author:        Dino Haw <347341799@qq.com>
- * Version:       v1.5
+ * Version:       v1.5a
  * Change Logs:
  * Version  Date         Author     Notes
  * v1.0     2023-11-10   Dino       the first version
@@ -42,6 +42,8 @@
  * v1.5     2023-11-30   Dino       1. 新增更多的 progress bar 样式
  *                                  2. 新增解析自定义的 memory area
  *                                  3. 修复 RAM 和 ROM 信息缺失时显示异常的问题
+ * v1.5a    2023-11-30   Dino       1. 修复 object 数据溢出的问题
+ *                                  2. 修改进度条内存大小的显示策略，不再四舍五入
  */
 
 /* Includes ------------------------------------------------------------------*/
@@ -1101,18 +1103,6 @@ int uvprojx_file_process(const char *file_path,
                         out_info->is_has_pack = true;
                         state = 3;
                     }
-
-                    // lt   = strrchr(_line_text, '<');
-                    // if (lt) 
-                    // {
-                    //     *lt = '\0';
-                    //     if (strncasecmp(str, "ARM", 3) == 0) {
-                    //         out_info->is_has_pack = false;
-                    //     } else {
-                    //         out_info->is_has_pack = true;
-                    //     }
-                    //     state = 3;
-                    // }
                 }
                 break;
             case 3:
@@ -1172,7 +1162,7 @@ int uvprojx_file_process(const char *file_path,
                             str_p2 += 1;
                         } 
 
-                        int parse_mode = 0;
+                        uint8_t parse_mode = 0;
                         if (*str_p2 == ',') {
                             parse_mode = 0;
                         } 
@@ -1956,9 +1946,9 @@ int object_info_process(struct object_info **object_head,
                         bool is_get_user_lib,
                         uint8_t parse_mode)
 {
+    int result     = 0;
     uint8_t state  = 0;
-    int  result    = 0;
-    int  value[16] = {0};
+    uint32_t value[16] = {0};
     char name[MAX_PRJ_NAME_SIZE] = {0};
     char *token    = NULL;
     char *end_ptr  = NULL;
@@ -2379,34 +2369,33 @@ void memory_mode0_print(struct exec_region *e_region,
                         bool is_has_record,
                         bool is_print_null)
 {
+    bool is_print_head = false;
     char str[MAX_PRJ_NAME_SIZE] = {0};
 
     if (mem_type == MEMORY_TYPE_UNKNOWN) 
     {
-        bool is_has_unknown = false;
-        
-        for (struct exec_region *region_temp = e_region;
-             region_temp != NULL;
-             region_temp = region_temp->next)
+        for (struct exec_region *region = e_region;
+             region != NULL;
+             region = region->next)
         {
-            if (region_temp->memory_type == MEMORY_TYPE_UNKNOWN) 
+            if (region->memory_type == MEMORY_TYPE_UNKNOWN) 
             {
-                is_has_unknown = true;
-                break;
+                if (is_print_head == false) 
+                {
+                    log_print(_log_file, "        UNKNOWN\n");
+                    is_print_head = true;
+                }
+                progress_print(region, max_region_name, is_has_record);
             }
         }
-        if (is_has_unknown)
-        {
-            strncpy_s(str, sizeof(str), "        UNKNOWN\n", strlen("        UNKNOWN\n"));
-            log_print(_log_file, str);
-            memory_mode2_print(e_region, max_region_name, is_has_record);
+        if (is_print_head) {
+            log_print(_log_file, " \n");
         }
         return;
     }
 
     size_t id = 0;
     bool is_no_region  = true;
-    bool is_print_head = false;
 
     for (struct memory_info *memory = _memory_info_head;
          memory != NULL;
@@ -2478,27 +2467,27 @@ void memory_mode1_print(struct exec_region *e_region,
                         size_t max_region_name, 
                         bool is_has_record)
 {
+    bool is_print_head = false;
     char str[MAX_PRJ_NAME_SIZE] = {0};
 
     if (mem_type == MEMORY_TYPE_UNKNOWN) 
     {
-        bool is_has_unknown = false;
-        
         for (struct exec_region *region = e_region;
              region != NULL;
              region = region->next)
         {
             if (region->memory_type == MEMORY_TYPE_UNKNOWN) 
             {
-                is_has_unknown = true;
-                break;
+                if (is_print_head == false) 
+                {
+                    log_print(_log_file, "        UNKNOWN\n");
+                    is_print_head = true;
+                }
+                progress_print(region, max_region_name, is_has_record);
             }
         }
-        if (is_has_unknown)
-        {
-            strncpy_s(str, sizeof(str), "        UNKNOWN\n", strlen("        UNKNOWN\n"));
-            log_print(_log_file, str);
-            memory_mode2_print(e_region, max_region_name, is_has_record);
+        if (is_print_head) {
+            log_print(_log_file, " \n");
         }
         return;
     }
@@ -2516,7 +2505,6 @@ void memory_mode1_print(struct exec_region *e_region,
         strncat_s(str, sizeof(str), " (off-chip)\n", strlen(" (off-chip)\n"));
     }
     
-    bool is_print_head = false;
     for (struct exec_region *region = e_region;
          region != NULL;
          region = region->next)
@@ -2581,6 +2569,7 @@ void progress_print(struct exec_region *region,
 {
     double size = 0;
     double used_size = 0;
+    uint32_t interge = 0;
     char size_str[MAX_PRJ_NAME_SIZE] = {0};
     char used_size_str[MAX_PRJ_NAME_SIZE] = {0};
 
@@ -2592,11 +2581,13 @@ void progress_print(struct exec_region *region,
     else if (region->used_size < (1024 * 1024))
     {
         used_size = (double)region->used_size / 1024;
+        used_size = floor(used_size * 10) / 10;     /* 向下取整一位，防止被四舍五入 */
         snprintf(used_size_str, sizeof(used_size_str), "%5.1f KB", used_size);
     }
     else
     {
         used_size = (double)region->used_size / (1024 * 1024);
+        used_size = floor(used_size * 10) / 10;
         snprintf(used_size_str, sizeof(used_size_str), "%5.1f MB", used_size);
     }
 
@@ -2608,11 +2599,13 @@ void progress_print(struct exec_region *region,
     else if (region->size < (1024 * 1024))
     {
         size = (double)region->size / 1024;
+        size = floor(size * 10) / 10;
         snprintf(size_str, sizeof(size_str), "%5.1f KB", size);
     }
     else
     {
         size = (double)region->size / (1024 * 1024);
+        size = floor(size * 10) / 10;
         snprintf(size_str, sizeof(size_str), "%5.1f MB", size);
     }
 
@@ -3268,10 +3261,10 @@ void load_region_free(struct load_region **region_head)
  */
 bool object_info_add(struct object_info **object_head,
                      const char *name,
-                     uint16_t   code,
-                     uint16_t   ro_data,
-                     uint16_t   rw_data,
-                     uint16_t   zi_data)
+                     uint32_t   code,
+                     uint32_t   ro_data,
+                     uint32_t   rw_data,
+                     uint32_t   zi_data)
 {
     struct object_info **object = object_head;
 

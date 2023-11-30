@@ -5,10 +5,11 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <time.h>
+#include <math.h>
 #include <windows.h>
 
 #define APP_NAME                        "keil-build-viewer"
-#define APP_VERSION                     "v1.5"
+#define APP_VERSION                     "v1.5a"
 
 #define MAX_DIR_HIERARCHY               32      /* 最大目录层级 */
 #define MAX_PATH_QTY                    32      /* 最大目录数量 */
@@ -143,10 +144,10 @@ struct object_info
 {
     char *name;
     char *path;
-    uint16_t code;
-    uint16_t ro_data;
-    uint16_t rw_data;
-    uint16_t zi_data;
+    uint32_t code;
+    uint32_t ro_data;
+    uint32_t rw_data;
+    uint32_t zi_data;
     struct object_info *old_object;
     struct object_info *next;
 };
@@ -248,10 +249,10 @@ bool                    memory_info_add             (struct memory_info **memory
 void                    memory_info_free            (struct memory_info **memory_head);
 bool                    object_info_add             (struct object_info **object_head,
                                                      const char *name,
-                                                     uint16_t    code,
-                                                     uint16_t    ro_data,
-                                                     uint16_t    rw_data,
-                                                     uint16_t    zi_data);
+                                                     uint32_t    code,
+                                                     uint32_t    ro_data,
+                                                     uint32_t    rw_data,
+                                                     uint32_t    zi_data);
 void                    object_info_free            (struct object_info **object_head);
 struct load_region *    load_region_create          (struct load_region **region_head, const char *name);
 struct exec_region *    load_region_add_exec_region (struct load_region **region_head, 
