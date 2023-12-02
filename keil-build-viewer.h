@@ -9,7 +9,7 @@
 #include <windows.h>
 
 #define APP_NAME                        "keil-build-viewer"
-#define APP_VERSION                     "v1.5a"
+#define APP_VERSION                     "v1.5b"
 
 #define MAX_DIR_HIERARCHY               32      /* 最大目录层级 */
 #define MAX_PATH_QTY                    32      /* 最大目录数量 */

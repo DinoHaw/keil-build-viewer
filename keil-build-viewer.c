@@ -29,7 +29,7 @@
  * This file is keil-build-viewer.
  *
  * Author:        Dino Haw <347341799@qq.com>
- * Version:       v1.5a
+ * Version:       v1.5b
  * Change Logs:
  * Version  Date         Author     Notes
  * v1.0     2023-11-10   Dino       the first version
@@ -44,6 +44,7 @@
  *                                  3. 修复 RAM 和 ROM 信息缺失时显示异常的问题
  * v1.5a    2023-11-30   Dino       1. 修复 object 数据溢出的问题
  *                                  2. 修改进度条内存大小的显示策略，不再四舍五入
+ * v1.5b    2023-12-02   Dino       1. 修复保存文件路径内存动态分配过小的问题
  */
 
 /* Includes ------------------------------------------------------------------*/
@@ -158,7 +159,13 @@ int main(int argc, char *argv[])
 
     /* 创建 log 文件 */
     char *file_path = NULL;
-    size_t file_path_size = buff_len * 2;
+    size_t file_path_size = 0;
+
+    if (buff_len < MAX_PATH) {
+        file_path_size = MAX_PATH * 2;
+    } else {
+        file_path_size = buff_len * 2;
+    }
     file_path = (char *)malloc(file_path_size);
     if (file_path == NULL) 
     {
@@ -2795,8 +2802,9 @@ void search_files_by_extension(const char *dir,
             char *str = strrchr(find_data.cFileName, '.');
             if (str && is_same_string(str, extension, extension_qty))
             {
-                char *file_path = malloc(dir_len * 2);
-                snprintf(file_path, dir_len * 2, "%s\\%s", dir, find_data.cFileName);
+                size_t len = dir_len + strnlen_s(find_data.cFileName, MAX_PATH) + 2;
+                char *file_path = malloc(len);
+                snprintf(file_path, len, "%s\\%s", dir, find_data.cFileName);
                 prj_path_list_add(list, file_path);
             }
         }

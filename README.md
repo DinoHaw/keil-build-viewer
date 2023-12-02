@@ -1,4 +1,4 @@
-# keil-build-viewer v1.5a
+# keil-build-viewer v1.5b
 
 ![演示界面](images/main.png)
 
@@ -132,6 +132,7 @@
 | v1.4  | 2023-11-21 | Dino         | 1. 增加将本工具放置于系统环境变量 Path 所含目录的功能 |
 | v1.5  | 2023-11-30 | Dino         | 1. 新增更多的 progress bar 样式<br>2. 新增解析自定义的 memory area<br>3. 修复 RAM 和 ROM 信息缺失时显示异常的问题 |
 | v1.5a | 2023-11-30 | Dino         | 1. 修复 object 数据溢出的问题<br>2. 修改进度条内存大小的显示策略，不再四舍五入 |
+| v1.5b | 2023-12-02 | Dino         | 1. 修复保存文件路径内存动态分配过小的问题            |
 
 
 ## 参与贡献
