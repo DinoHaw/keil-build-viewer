@@ -1,6 +1,6 @@
 # keil-build-viewer v1.5b
 
-! [demo](images/main.png)
+![demo](images/main.png)
 
 ## 1 Introduction
 This is a keil compilation information display enhancement tool that supports the visualization of chip memory, lightweight and no dependencies. It has the following features:
@@ -49,19 +49,19 @@ This is a keil compilation information display enhancement tool that supports th
 > **Description:** All parameters of this tool can be entered out of order, and when it is empty, it means that the default value is selected, but the parameters need to be separated from each other by **space**.
 
 > **Double-click to open the corresponding file animated presentation**
-! [Double click to open file](images/open_file.gif)
+![Double click to open file](images/open_file.gif)
 
 ## 2 Use in keil
 1. The way to invoke in keil is very simple, download latest version of `keil-build-viewer.exe` from [releases](https://gitee.com/DinoHaw/keil-build-viewer/releases) and put it in the same level directory of the uvproj(x) project corresponding to keil, and configure it according to the following figure. The configuration is done as shown below. If you want to enter other commands, enter them after `keil-build-viewer.exe`. If you want to display only the filename of each file, you can fill in the following: <br>
-    ```
-    keil-build-viewer.exe -NOPATH
-    ```
+    ```
+    keil-build-viewer.exe -NOPATH
+    ```
 
-2. In cmd or powershell use the same thing, just add the prefix `. \`. For example: <br>
-    ```
-    . \keil-build-viewer.exe
-    ```
-! [keil configuration](images/user_command.png)
+2. In cmd or powershell use the same thing, just add the prefix `.\`. For example: <br>
+    ```
+    .\keil-build-viewer.exe
+    ```
+![keil configuration](images/user_command.png)
 
 ## 3 I want to compile this tool myself ##
 **This code is only supported on windows systems**.
@@ -70,21 +70,21 @@ This is a keil compilation information display enhancement tool that supports th
 1. Download the gcc compiler, for compatibility, here is a 32-bit mingw download link: [i686-13.1.0-release-posix-dwarf-ucrt-rt_v11-rev1.7z](https://github.com/niXman/mingw- builds-binaries/releases/download/13.1.0-rt_v11-rev1/i686-13.1.0-release-posix-dwarf-ucrt-rt_v11-rev1.7z)
 2. Unzip the program and put it in any path, take `C:\mingw32` as an example.
 3. Configure system environment variables
-    ! [Configure environment variables](images/path_config.png)
+    ![Configure environment variables](images/path_config.png)
 
 4. Open `powershell` or `cmd` and type `gcc -v`, and the following image appears to indicate successful configuration
-    ! [gcc](images/gcc.png)
+    ![gcc](images/gcc.png)
 
 ### 3.2 Compilation
 1. Open `powershell` or `cmd` and locate the code directory.
     - If you are using `powershell`, hold down the `shift` key while clicking the right mouse button on an empty space in the code directory and select Open `powershell`, which will automatically locate the code directory.
 
 2. Execute the following gcc command
-    ``
-    gcc . \keil-build-viewer.c -o . \keil-build-viewer.exe
-    ``
+    ```
+    gcc .\keil-build-viewer.c -o .\keil-build-viewer.exe
+    ```
 3. Compilation passes without any message
-    ! [gcc compile passed](images/gcc_compile.png)
+    ![gcc compile passed](images/gcc_compile.png)
 
 ## 4 Questions answered
 1. A prompt such as `[ERROR] NO keil project found` appears.
@@ -92,26 +92,26 @@ This is a keil compilation information display enhancement tool that supports th
 
 2. A prompt such as `[ERROR] listing path is empty` appears.
     > Select the folder in keil where you want to place the listing-related files.
-    ! [select_listing_folder](images/select_listing_folder.png)
+    ![select_listing_folder](images/select_listing_folder.png)
 
 3. Prompts such as `[ERROR] generate map file is not checked` or `[ERROR] Check if a map file exists` occur
     > Make sure that keil has checked the options shown below.
-    ! [create_map](images/create_map.png)
+    ![create_map](images/create_map.png)
 
 4. If compilation information is missing or deviates from reality
     > Confirm that the parsed project is the target project (when there are multiple projects in the same level of directory) <br>
     > You can check the current project parsed by the tool with the parsed predecessor information, and if you find inconsistencies, you can specify the project name after `keil-build-viewer.exe`, for example:
-    ```
-    keil-build-viewer.exe TIMER
-    or
-    keil-build-viewer.exe TIMER.uvprojx
-    ```
-    > ! [parsed project](images/keil_project_name.png)
+    ```
+    keil-build-viewer.exe TIMER
+    or
+    keil-build-viewer.exe TIMER.uvprojx
+    ```
+    > ![parsed project](images/keil_project_name.png)
 
-5. If there are spaces in the project directory or project name, enclose them in `""`.
-    > ! [space case](images/space_example.png)
+1. If there are spaces in the project directory or project name, enclose them in `""`.
+    > ![space case](images/space_example.png)
 
-6. For other questions, please raise issues or contact the authors.
+2. For other questions, please raise issues or contact the authors.
 
 ## Important note
 > **1. Currently only the keil MDK is supported.**
@@ -119,11 +119,11 @@ This is a keil compilation information display enhancement tool that supports th
 > **2. Does not support parsing of files added via RTE**
 
 ## Modify the record
-| version | date | modifier | modification | content
+| version | date | author | revise content |
 |:-----:|:----------:|--------------|---------------------------------------------------|
 | v1.0 | 2023-11-10 | Dino | Initial release |
 | v1.1 | 2023-11-11 | Dino | 1. Adaptation of RAM and ROM parsing |
-| v1.2 | 2023-11-11 | Dino | 1. Adapted map file for keil4<br>2. Added print message when LTO is detected to be on<br>3. Fixed the problem that no region is printed when LTO is enabled.
+| v1.2 | 2023-11-11 | Dino | 1. Adapted map file for keil4<br>2. Added print message when LTO is detected to be on<br>3. Fixed the problem that no region is printed when LTO is enabled. |
 | v1.3 | 2023-11-12 | Dino | 1. Fixed the issue that only one lib is parsed when there are multiple libs in the project |
 | v1.4 | 2023-11-21 | Dino | 1. Add the function of placing this tool in the directory contained in the system environment variable Path |
 | v1.5 | 2023-11-30 | Dino | 1. Add more progress bar styles<br>2. Add parsing customized memory area<br>3. Fix the problem of displaying an exception when the RAM and ROM information is missing |
