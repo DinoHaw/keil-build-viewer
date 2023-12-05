@@ -67,7 +67,7 @@ This is a keil compilation information display enhancement tool that supports th
 **This code is only supported on windows systems**.
 ### 3.1 Preparatory operations
 0. If you already have gcc installed, ignore this step.
-1. Download the gcc compiler, for compatibility, here is a 32-bit mingw download link: [i686-13.1.0-release-posix-dwarf-ucrt-rt_v11-rev1.7z](https://github.com/niXman/mingw- builds-binaries/releases/download/13.1.0-rt_v11-rev1/i686-13.1.0-release-posix-dwarf-ucrt-rt_v11-rev1.7z)
+1. Download the gcc compiler, for compatibility, here is a 32-bit mingw download link: [i686-13.1.0-release-posix-dwarf-ucrt-rt_v11-rev1.7z](https://github.com/niXman/mingw-builds-binaries/releases/download/13.1.0-rt_v11-rev1/i686-13.1.0-release-posix-dwarf-ucrt-rt_v11-rev1.7z)
 2. Unzip the program and put it in any path, take `C:\mingw32` as an example.
 3. Configure system environment variables
     ![Configure environment variables](images/path_config.png)
@@ -94,11 +94,11 @@ This is a keil compilation information display enhancement tool that supports th
     > Select the folder in keil where you want to place the listing-related files.
     ![select_listing_folder](images/select_listing_folder.png)
 
-3. Prompts such as `[ERROR] generate map file is not checked` or `[ERROR] Check if a map file exists` occur
+3. A prompt such as `[ERROR] generate map file is not checked` or `[ERROR] Check if a map file exists` appears.
     > Make sure that keil has checked the options shown below.
     ![create_map](images/create_map.png)
 
-4. If compilation information is missing or deviates from reality
+4. If compilation information is missing or deviates from reality.
     > Confirm that the parsed project is the target project (when there are multiple projects in the same level of directory) <br>
     > You can check the current project parsed by the tool with the parsed predecessor information, and if you find inconsistencies, you can specify the project name after `keil-build-viewer.exe`, for example:
     ```
@@ -108,10 +108,10 @@ This is a keil compilation information display enhancement tool that supports th
     ```
     > ![parsed project](images/keil_project_name.png)
 
-1. If there are spaces in the project directory or project name, enclose them in `""`.
+5. If there are spaces in the project directory or project name, enclose them in `""`.
     > ![space case](images/space_example.png)
 
-2. For other questions, please raise issues or contact the authors.
+6. For other questions, please raise issues or contact the authors.
 
 ## Important note
 > **1. Currently only the keil MDK is supported.**
