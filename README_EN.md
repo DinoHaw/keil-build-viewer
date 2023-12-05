@@ -52,7 +52,7 @@ This is a keil compilation information display enhancement tool that supports th
 ![Double click to open file](images/open_file.gif)
 
 ## 2 Use in keil
-1. The way to invoke in keil is very simple, download latest version of `keil-build-viewer.exe` from [releases](https://gitee.com/DinoHaw/keil-build-viewer/releases) and put it in the same level directory of the uvproj(x) project corresponding to keil, and configure it according to the following figure. The configuration is done as shown below. If you want to enter other commands, enter them after `keil-build-viewer.exe`. If you want to display only the filename of each file, you can fill in the following: <br>
+1. The way to invoke in keil is very simple, download latest version of `keil-build-viewer.exe` from [releases](https://github.com/DinoHaw/keil-build-viewer/releases) and put it in the same level directory of the uvproj(x) project corresponding to keil, and configure it according to the following figure. The configuration is done as shown below. If you want to enter other commands, enter them after `keil-build-viewer.exe`. If you want to display only the filename of each file, you can fill in the following: <br>
     ```
     keil-build-viewer.exe -NOPATH
     ```
@@ -123,7 +123,7 @@ This is a keil compilation information display enhancement tool that supports th
 |:-----:|:----------:|--------------|---------------------------------------------------|
 | v1.0 | 2023-11-10 | Dino | Initial release |
 | v1.1 | 2023-11-11 | Dino | 1. Adaptation of RAM and ROM parsing |
-| v1.2 | 2023-11-11 | Dino | 1. Adapted map file for keil4<br>2. Added print message when LTO is detected to be on<br>3. Fixed the problem that no region is printed when LTO is enabled. |
+| v1.2 | 2023-11-11 | Dino | 1. Adapted map file for keil4<br>2. Added print message when LTO is detected to be on<br>3. Fixed the problem that no region is printed when LTO is enabled |
 | v1.3 | 2023-11-12 | Dino | 1. Fixed the issue that only one lib is parsed when there are multiple libs in the project |
 | v1.4 | 2023-11-21 | Dino | 1. Add the function of placing this tool in the directory contained in the system environment variable Path |
 | v1.5 | 2023-11-30 | Dino | 1. Add more progress bar styles<br>2. Add parsing customized memory area<br>3. Fix the problem of displaying an exception when the RAM and ROM information is missing |
